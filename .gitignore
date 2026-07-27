@@ -1,0 +1,30 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+ap-manager
+updater
+updater.new
+
+# PID files
+*.pid
+
+# Backup files
+*.bak
+*.tmp
+
+# State
+repos.json
+
+# Test output
+*.out
+*.test
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+bin/*

@@ -1,0 +1,134 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version override (e.g. 0.1)"
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+
+          - os: ubuntu-latest
+            goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+
+          - os: ubuntu-latest
+            goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+
+          - os: ubuntu-latest
+            goos: android
+            goarch: arm64
+            suffix: android-arm64
+
+          - os: ubuntu-latest
+            goos: android
+            goarch: arm
+            goarm: 7
+            cgo: 1
+            suffix: android-armv7
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup Android NDK
+        if: matrix.goos == 'android' && matrix.goarch == 'arm'
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
+            echo "value=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ github.ref_name }}" ]; then
+            echo "value=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "value=0.1" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: ${{ matrix.cgo || '0' }}
+          CC: ${{ (matrix.goos == 'android' && matrix.goarch == 'arm') && format('{0}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang', steps.ndk.outputs.ndk-path) || '' }}
+        run: |
+          BIN="ap-manager-${{ matrix.suffix }}-${{ steps.version.outputs.value }}"
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X main.Version=${{ steps.version.outputs.value }}" \
+            -o "bin/$BIN" \
+            ./cmd/ap-manager
+
+      - name: Compress with UPX
+        shell: bash
+        working-directory: bin
+        run: |
+          if command -v upx &>/dev/null; then
+            upx --best --lzma "ap-manager-${{ matrix.suffix }}-${{ steps.version.outputs.value }}" || true
+          else
+            echo "UPX not available, skipping compression"
+          fi
+
+      - name: Fix permissions
+        shell: bash
+        run: chmod +x bin/ap-manager-${{ matrix.suffix }}-${{ steps.version.outputs.value }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ap-manager-${{ matrix.suffix }}
+          path: bin/ap-manager-${{ matrix.suffix }}-${{ steps.version.outputs.value }}
+
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
