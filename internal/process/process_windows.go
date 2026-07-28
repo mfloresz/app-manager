@@ -34,8 +34,8 @@ func killProcessForce(pid int) error {
 	return process.Kill()
 }
 
-func startProcess(path string) (int, error) {
-	cmd := exec.Command(path)
+func startProcess(path string, args ...string) (int, error) {
+	cmd := exec.Command(path, args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil

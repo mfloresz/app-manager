@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -25,6 +27,11 @@ type Handler struct {
 	Arch    string
 }
 
+// splitArgs parses a command string into arguments.
+func splitArgs(cmd string) []string {
+	return process.SplitArgs(cmd)
+}
+
 // RegisterRoutes registers all API routes on the given mux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/repos", h.handleRepos)
@@ -32,6 +39,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/repos/remove", h.handleRemoveRepo)
 	mux.HandleFunc("/api/repos/check", h.handleCheckVersion)
 	mux.HandleFunc("/api/repos/update", h.handleUpdateRepo)
+	mux.HandleFunc("/api/repos/install", h.handleInstallRepo)
 	mux.HandleFunc("/api/repos/status", h.handleRepoStatus)
 	mux.HandleFunc("/api/repos/stop", h.handleStopRepo)
 	mux.HandleFunc("/api/repos/start", h.handleStartRepo)
@@ -56,12 +64,14 @@ func (h *Handler) handleAddRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var input struct {
-		Owner    string `json:"owner"`
-		Name     string `json:"name"`
-		AppName  string `json:"app_name"`
-		Asset    string `json:"asset,omitempty"`
-		PlatOS   string `json:"platform_os,omitempty"`
-		PlatArch string `json:"platform_arch,omitempty"`
+		Owner         string `json:"owner"`
+		Name          string `json:"name"`
+		AppName       string `json:"app_name"`
+		Asset         string `json:"asset,omitempty"`
+		CustomCommand string `json:"custom_command,omitempty"`
+		InstallPath   string `json:"install_path,omitempty"`
+		PlatOS        string `json:"platform_os,omitempty"`
+		PlatArch      string `json:"platform_arch,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		http.Error(w, "JSON inválido: "+err.Error(), http.StatusBadRequest)
@@ -83,14 +93,17 @@ func (h *Handler) handleAddRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	repo := storage.Repository{
-		ID:           id,
-		Owner:        input.Owner,
-		Name:         input.Name,
-		AppName:      input.AppName,
-		AssetName:    input.Asset,
-		PlatformOS:   input.PlatOS,
-		PlatformArch: input.PlatArch,
-		Status:       storage.StatusIdle,
+		ID:            id,
+		Owner:         input.Owner,
+		Name:          input.Name,
+		AppName:       input.AppName,
+		AssetName:     input.Asset,
+		CustomCommand: input.CustomCommand,
+		InstallPath:   input.InstallPath,
+		PlatformOS:    input.PlatOS,
+		PlatformArch:  input.PlatArch,
+		Installed:     false,
+		Status:        storage.StatusIdle,
 	}
 
 	if err := h.Store.Add(repo); err != nil {
@@ -247,15 +260,31 @@ func (h *Handler) handleStartRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appPath, err := process.FindAppBinary(repo.AppName)
-	if err != nil {
-		h.Broker.EmitError(repo.ID, "Binario no encontrado: "+err.Error())
-		http.Error(w, "Binario no encontrado: "+err.Error(), http.StatusNotFound)
-		return
+	appPath := ""
+	// First check custom InstallPath
+	if repo.InstallPath != "" {
+		p := filepath.Join(repo.InstallPath, repo.AppName)
+		if fi, statErr := os.Stat(p); statErr == nil && fi.Mode()&0111 != 0 {
+			appPath = p
+		}
+	}
+	// Fall back to standard search
+	if appPath == "" {
+		var findErr error
+		appPath, findErr = process.FindAppBinary(repo.AppName)
+		if findErr != nil {
+			h.Broker.EmitError(repo.ID, "Binario no encontrado: "+findErr.Error())
+			h.Store.Update(repo.ID, func(r *storage.Repository) {
+				r.Installed = false
+			})
+			http.Error(w, "Binario no encontrado: "+findErr.Error(), http.StatusNotFound)
+			return
+		}
 	}
 
-	h.Broker.EmitLog(repo.ID, "▶️ Iniciando "+repo.AppName+" ...")
-	pid, err := h.ProcMan.Start(repo.AppName, appPath)
+	args := splitArgs(repo.CustomCommand)
+	h.Broker.EmitLog(repo.ID, "▶️ Iniciando "+repo.AppName+" "+strings.Join(args, " ")+" ...")
+	pid, err := h.ProcMan.Start(repo.AppName, appPath, args...)
 	if err != nil {
 		h.Broker.EmitError(repo.ID, "Error al iniciar: "+err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -307,14 +336,30 @@ func (h *Handler) handleRestartRepo(w http.ResponseWriter, r *http.Request) {
 	h.ProcMan.Stop(repo.AppName)
 	time.Sleep(1 * time.Second)
 
-	appPath, err := process.FindAppBinary(repo.AppName)
-	if err != nil {
-		h.Broker.EmitError(repo.ID, "Binario no encontrado: "+err.Error())
-		http.Error(w, "Binario no encontrado: "+err.Error(), http.StatusNotFound)
-		return
+	appPath := ""
+	// First check custom InstallPath
+	if repo.InstallPath != "" {
+		p := filepath.Join(repo.InstallPath, repo.AppName)
+		if fi, statErr := os.Stat(p); statErr == nil && fi.Mode()&0111 != 0 {
+			appPath = p
+		}
+	}
+	// Fall back to standard search
+	if appPath == "" {
+		var findErr error
+		appPath, findErr = process.FindAppBinary(repo.AppName)
+		if findErr != nil {
+			h.Broker.EmitError(repo.ID, "Binario no encontrado: "+findErr.Error())
+			h.Store.Update(repo.ID, func(r *storage.Repository) {
+				r.Installed = false
+			})
+			http.Error(w, "Binario no encontrado: "+findErr.Error(), http.StatusNotFound)
+			return
+		}
 	}
 
-	pid, err := h.ProcMan.Start(repo.AppName, appPath)
+	args := splitArgs(repo.CustomCommand)
+	pid, err := h.ProcMan.Start(repo.AppName, appPath, args...)
 	if err != nil {
 		h.Broker.EmitError(repo.ID, "Error al reiniciar: "+err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -358,6 +403,52 @@ func (h *Handler) handleUpdateRepo(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "updating"})
 
 	go h.Updater.RunUpdate(repo.ID)
+}
+
+// handleInstallRepo performs a first-time install for a repo's binary.
+func (h *Handler) handleInstallRepo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var input struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, "JSON inválido", http.StatusBadRequest)
+		return
+	}
+	if input.ID == "" {
+		http.Error(w, "Falta id", http.StatusBadRequest)
+		return
+	}
+
+	repo := h.Store.Find(input.ID)
+	if repo == nil {
+		http.Error(w, "No encontrado", http.StatusNotFound)
+		return
+	}
+
+	if repo.Installed {
+		// Check if binary actually exists
+		if process.BinaryExists(repo.AppName) {
+			h.Broker.EmitLog(repo.ID, "ℹ️ "+repo.AppName+" ya está instalado")
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"status": "already_installed"})
+			return
+		}
+		// Binary missing but flag says installed — fix flag
+		h.Store.Update(repo.ID, func(r *storage.Repository) {
+			r.Installed = false
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"status": "installing"})
+
+	go h.Updater.InstallApp(repo.ID)
 }
 
 // handleSSE provides per-repo event streaming.

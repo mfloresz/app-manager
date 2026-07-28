@@ -41,6 +41,9 @@ type Repository struct {
 	LastUpdate     string `json:"last_update,omitempty"`
 	Progress       int    `json:"progress,omitempty"`
 	Error          string `json:"error,omitempty"`
+	Installed      bool   `json:"installed"`
+	InstallPath    string `json:"install_path,omitempty"`
+	CustomCommand  string `json:"custom_command,omitempty"`
 }
 
 // Store manages persistent state.

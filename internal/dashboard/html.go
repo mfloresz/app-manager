@@ -440,6 +440,16 @@ body {
         <label class="form-label" for="in-asset">Asset name exacto <span style="color:var(--text-muted);font-weight:400">(opcional)</span></label>
         <input class="form-input" id="in-asset" type="text" placeholder="ej. yara-v2.0.0-linux-amd64" autocomplete="off">
       </div>
+      <div class="form-group">
+        <label class="form-label" for="in-args">Argumentos extra <span style="color:var(--text-muted);font-weight:400">(opcional)</span></label>
+        <input class="form-input" id="in-args" type="text" placeholder="ej. --port 8080 --verbose" autocomplete="off">
+        <div class="form-hint">Se pasarán al binario al iniciarlo (separados por espacios)</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="in-install-path">Ruta de instalación <span style="color:var(--text-muted);font-weight:400">(opcional)</span></label>
+        <input class="form-input" id="in-install-path" type="text" placeholder="auto: ~/bin/ o $PREFIX/bin" autocomplete="off">
+        <div class="form-hint">Si se omite, se detecta automáticamente según la plataforma</div>
+      </div>
       <div class="form-error" id="modal-error"></div>
     </div>
     <div class="modal-actions">
@@ -460,6 +470,7 @@ var repoSvc = {};
 var repoLatestVer = {};
 var repoCurrentVer = {};
 var repoProgress = {};
+var repoInstalled = {};
 
 // INIT
 fetch('/api/platform').then(function(r){return r.json()}).then(function(d){
@@ -513,9 +524,11 @@ function appendGlobalLog(msg, type, timestamp) {
 globalSrc.onmessage = function(e) {
   try {
     var evt = JSON.parse(e.data);
-    appendGlobalLog(evt.message, evt.type, evt.timestamp);
+    if (evt.message) {
+      appendGlobalLog(evt.message, evt.type, evt.timestamp);
+    }
   } catch(err) {
-    appendGlobalLog(e.data, 'info');
+    if (e.data) appendGlobalLog(e.data, 'info');
   }
 };
 
@@ -525,16 +538,17 @@ function loadRepos() {
     .then(function(r){return r.json()})
     .then(function(data) {
       repos = data;
-      repos.forEach(function(repo) {
-        if (!repoStatus[repo.id]) repoStatus[repo.id] = 'idle';
-        if (repo.current_version) repoCurrentVer[repo.id] = repo.current_version;
-        if (repo.latest_version) repoLatestVer[repo.id] = repo.latest_version;
-        if (repo.progress) repoProgress[repo.id] = repo.progress;
-        if (['completed', 'failed'].indexOf(repoStatus[repo.id]) !== -1) {
-          repoStatus[repo.id] = 'idle';
-        }
-        connectRepoSSE(repo.id);
-      });
+  	    repos.forEach(function(repo) {
+	        if (!repoStatus[repo.id]) repoStatus[repo.id] = 'idle';
+	        if (repo.current_version) repoCurrentVer[repo.id] = repo.current_version;
+	        if (repo.latest_version) repoLatestVer[repo.id] = repo.latest_version;
+	        if (repo.progress) repoProgress[repo.id] = repo.progress;
+	        repoInstalled[repo.id] = repo.installed ? true : false;
+	        if (['completed', 'failed'].indexOf(repoStatus[repo.id]) !== -1) {
+	          repoStatus[repo.id] = 'idle';
+	        }
+	        connectRepoSSE(repo.id);
+	      });
       renderRepos();
       fetchServiceStatuses();
       startServicePolling();
@@ -576,39 +590,42 @@ function connectRepoSSE(repoId) {
           updateStatusBadge(repoId, 'downloading');
         }
       }
-      else if (evt.type === 'version') {
-        if (evt.current) {
-          repoCurrentVer[repoId] = evt.current;
-          var curEl = document.getElementById('current-' + sid);
-          if (curEl) curEl.textContent = evt.current;
-        }
-        if (evt.latest) {
-          repoLatestVer[repoId] = evt.latest;
-          var newEl = document.getElementById('newver-' + sid);
-          if (newEl) {
-            newEl.textContent = evt.latest;
-            var cls = 'version-value version-value--new';
-            if (repoLatestVer[repoId] !== repoCurrentVer[repoId]) cls += ' version-value--pending';
-            newEl.className = cls;
-          }
-          updateVersionDiff(repoId, sid);
-        }
-      }
-      else if (evt.type === 'status') {
-        if (evt.status) {
-          var mappedStatus = mapBackendStatus(evt.status);
-          repoStatus[repoId] = mappedStatus;
-          updateStatusBadge(repoId, mappedStatus);
-          updateButtons(repoId, mappedStatus);
+    	  else if (evt.type === 'version') {
+    	    if (evt.current) {
+    	      repoCurrentVer[repoId] = evt.current;
+    	      var curEl = document.getElementById('current-' + sid);
+    	      if (curEl) curEl.textContent = evt.current;
+    	    }
+    	    if (evt.latest) {
+    	      repoLatestVer[repoId] = evt.latest;
+    	      var newEl = document.getElementById('newver-' + sid);
+    	      if (newEl) {
+    	        newEl.textContent = evt.latest;
+    	        var cls = 'version-value version-value--new';
+    	        if (repoLatestVer[repoId] !== repoCurrentVer[repoId]) cls += ' version-value--pending';
+    	        newEl.className = cls;
+    	      }
+    	      updateVersionDiff(repoId, sid);
+    	    }
+    	    // Refresh to sync installed state (CheckVersion may have found binary)
+    	    setTimeout(function() { loadRepos(); }, 300);
+    	  }
+    	  if (evt.type === 'status') {
+    	    if (evt.status) {
+    	      var mappedStatus = mapBackendStatus(evt.status);
+    	      repoStatus[repoId] = mappedStatus;
+    	      updateStatusBadge(repoId, mappedStatus);
+    	      updateButtons(repoId, mappedStatus);
 
-          if (mappedStatus === 'completed') {
-            showToast('Actualización completada para ' + repoId, 'success');
-            setTimeout(function() { loadRepos(); }, 1000);
-          }
-          if (mappedStatus === 'failed') {
-            showToast('Error en actualización para ' + repoId, 'error');
-          }
-        }
+    	      if (mappedStatus === 'completed') {
+    	        repoInstalled[repoId] = true;
+    	        showToast('Instalación completada para ' + repoId, 'success');
+    	        setTimeout(function() { loadRepos(); }, 1000);
+    	      }
+    	      if (mappedStatus === 'failed') {
+    	        showToast('Error en operación para ' + repoId, 'error');
+    	      }
+    	    }
 
         if (evt.service_run !== undefined) {
           repoSvc[repoId] = evt.service_run;
@@ -660,55 +677,64 @@ function renderRepos() {
   countEl.textContent = repos.length;
 
   var html = '';
-  repos.forEach(function(repo) {
-    var sid = safeId(repo.id);
-    var cur = repoCurrentVer[repo.id] || repo.current_version || '--';
-    var lat = repoLatestVer[repo.id] || repo.latest_version || '--';
-    var st = repoStatus[repo.id] || 'idle';
-    var svc = repoSvc[repo.id];
+	  repos.forEach(function(repo) {
+	    var sid = safeId(repo.id);
+	    var cur = repoCurrentVer[repo.id] || repo.current_version || '--';
+	    var lat = repoLatestVer[repo.id] || repo.latest_version || '--';
+	    var st = repoStatus[repo.id] || 'idle';
+	    var svc = repoSvc[repo.id];
+	    var installed = repoInstalled[repo.id];
+	    var busyStates = ['checking','downloading','stopping','replacing','starting','verifying'];
 
-    html += '<div class="repo-card" id="card-' + sid + '">';
+	    html += '<div class="repo-card" id="card-' + sid + '">';
 
-    // Top Header
-    html += '  <div class="repo-card-top">';
-    html += '    <div class="repo-card-title">';
-    html += '      <span class="repo-icon">' + ICONS.repo + '</span>';
-    html += '      <a href="https://github.com/' + repo.owner + '/' + repo.name + '" target="_blank" rel="noopener"><span class="owner">' + repo.owner + '/</span>' + repo.name + '</a>';
-    html += '      <span class="app-tag">' + (repo.app_name || repo.name) + '</span>';
-    html += '    </div>';
-    html += '    <div class="repo-card-badges">';
-    html += getSvcBadgeHtml(svc);
-    html += getStatusBadgeHtml(st);
-    html += '    </div>';
-    html += '  </div>';
+	    // Top Header
+	    html += '  <div class="repo-card-top">';
+	    html += '    <div class="repo-card-title">';
+	    html += '      <span class="repo-icon">' + ICONS.repo + '</span>';
+	    html += '      <a href="https://github.com/' + repo.owner + '/' + repo.name + '" target="_blank" rel="noopener"><span class="owner">' + repo.owner + '/</span>' + repo.name + '</a>';
+	    html += '      <span class="app-tag">' + (repo.app_name || repo.name) + '</span>';
+	    html += '    </div>';
+	    html += '    <div class="repo-card-badges">';
+	    html += getSvcBadgeHtml(svc);
+	    if (!installed) {
+	      if (busyStates.indexOf(st) !== -1) {
+	        html += '<span class="badge badge--busy"><span class="spinner"></span> instalando</span>';
+	      } else {
+	        html += '<span class="badge badge--stopped">no instalado</span>';
+	      }
+	    } else {
+	      html += getStatusBadgeHtml(st);
+	    }
+	    html += '    </div>';
+	    html += '  </div>';
 
-    // Versions
-    html += '  <div class="versions">';
-    html += '    <div class="version-box">';
-    html += '      <span class="version-label">Actual:</span>';
-    html += '      <span class="version-value version-value--current" id="current-' + sid + '">' + cur + '</span>';
-    html += '    </div>';
-    html += '    <div class="version-box">';
-    html += '      <span class="version-label">Última:</span>';
-    var latCls = 'version-value version-value--new';
-    if (lat !== cur && lat !== '--') latCls += ' version-value--pending';
-    html += '      <span class="' + latCls + '" id="newver-' + sid + '">' + lat + '</span><span id="diff-' + sid + '"></span>';
-    html += '    </div>';
-    html += '  </div>';
+	    // Versions
+	    html += '  <div class="versions">';
+	    html += '    <div class="version-box">';
+	    html += '      <span class="version-label">Actual:</span>';
+	    html += '      <span class="version-value version-value--current" id="current-' + sid + '">' + cur + '</span>';
+	    html += '    </div>';
+	    html += '    <div class="version-box">';
+	    html += '      <span class="version-label">Última:</span>';
+	    var latCls = 'version-value version-value--new';
+	    if (lat !== cur && lat !== '--') latCls += ' version-value--pending';
+	    html += '      <span class="' + latCls + '" id="newver-' + sid + '">' + lat + '</span><span id="diff-' + sid + '"></span>';
+	    html += '    </div>';
+	    html += '  </div>';
 
-    // Progress Bar
-    var prog = repoProgress[repo.id] || 0;
-    var busyStates = ['checking','downloading','stopping','replacing','starting','verifying'];
-    var progActive = (busyStates.indexOf(st) !== -1 || prog > 0) ? ' progress-bar--active' : '';
-    html += '  <div class="progress-bar' + progActive + '"><div class="progress-bar-fill" id="progress-' + sid + '" style="width:' + prog + '%"></div></div>';
+	    // Progress Bar
+	    var prog = repoProgress[repo.id] || 0;
+	    var progActive = (busyStates.indexOf(st) !== -1 || prog > 0) ? ' progress-bar--active' : '';
+	    html += '  <div class="progress-bar' + progActive + '"><div class="progress-bar-fill" id="progress-' + sid + '" style="width:' + prog + '%"></div></div>';
 
-    // Actions
-    html += '  <div class="actions" id="actions-' + sid + '">';
-    html += getButtonsHtml(repo.id, st, svc);
-    html += '  </div>';
+	    // Actions
+	    html += '  <div class="actions" id="actions-' + sid + '">';
+	    html += getButtonsHtml(repo.id, st, svc);
+	    html += '  </div>';
 
-    html += '</div>';
-  });
+	    html += '</div>';
+	  });
 
   container.innerHTML = html;
 
@@ -737,28 +763,41 @@ function getStatusBadgeHtml(st) {
 }
 
 function getButtonsHtml(repoId, st, svc) {
-  var isBusy = ['checking','downloading','stopping','replacing','starting','verifying'].indexOf(st) !== -1;
+  var busyStates = ['checking','downloading','stopping','replacing','starting','verifying'];
+  var isBusy = busyStates.indexOf(st) !== -1;
+  var isInstalled = repoInstalled[repoId];
+  var disabled = isBusy ? 'disabled' : '';
 
+  // ── No instalado: solo buscar, instalar, eliminar ──
+  if (!isInstalled) {
+    var h = '';
+    h += '<button class="btn" onclick="checkRepo(\'' + repoId + '\')" ' + disabled + ' title="Buscar versi\u00f3n disponible">' + ICONS.check + ' Buscar</button>';
+    h += '<button class="btn btn--primary" onclick="installRepo(\'' + repoId + '\')" ' + disabled + ' title="Descargar e instalar binario">' + ICONS.download + ' Instalar</button>';
+    h += '<button class="btn" onclick="removeRepo(\'' + repoId + '\')" ' + disabled + ' title="Eliminar repositorio">' + ICONS.remove + ' Eliminar</button>';
+    return h;
+  }
+
+  // ── Instalado: conjunto completo de acciones ──
   var h = '';
-  h += '<button class="btn" onclick="checkRepo(\'' + repoId + '\')" ' + (isBusy ? 'disabled' : '') + ' title="Buscar actualizaci\u00f3n">' + ICONS.check + ' Buscar</button>';
+  h += '<button class="btn" onclick="checkRepo(\'' + repoId + '\')" ' + disabled + ' title="Buscar actualizaci\u00f3n">' + ICONS.check + ' Buscar</button>';
 
   var cur = repoCurrentVer[repoId];
   var lat = repoLatestVer[repoId];
   var hasUpdate = (lat && cur && lat !== cur && lat !== '--' && cur !== '--');
 
-  h += '<button class="btn ' + (hasUpdate ? 'btn--success' : '') + '" onclick="updateRepo(\'' + repoId + '\')" ' + (isBusy ? 'disabled' : '') + ' title="Actualizar binario">' + ICONS.download + ' Actualizar</button>';
+  h += '<button class="btn ' + (hasUpdate ? 'btn--success' : '') + '" onclick="updateRepo(\'' + repoId + '\')" ' + disabled + ' title="Actualizar binario">' + ICONS.download + ' Actualizar</button>';
 
   if (svc === 'running') {
-    h += '<button class="btn btn--danger" onclick="stopService(\'' + repoId + '\')" ' + (isBusy ? 'disabled' : '') + ' title="Detener servicio">' + ICONS.stop + ' Detener</button>';
-    h += '<button class="btn" onclick="restartService(\'' + repoId + '\')" ' + (isBusy ? 'disabled' : '') + ' title="Reiniciar servicio">' + ICONS.restart + ' Reiniciar</button>';
+    h += '<button class="btn btn--danger" onclick="stopService(\'' + repoId + '\')" ' + disabled + ' title="Detener servicio">' + ICONS.stop + ' Detener</button>';
+    h += '<button class="btn" onclick="restartService(\'' + repoId + '\')" ' + disabled + ' title="Reiniciar servicio">' + ICONS.restart + ' Reiniciar</button>';
   } else if (svc === 'stopped') {
-    h += '<button class="btn" onclick="startService(\'' + repoId + '\')" ' + (isBusy ? 'disabled' : '') + ' title="Iniciar servicio">' + ICONS.start + ' Iniciar</button>';
+    h += '<button class="btn" onclick="startService(\'' + repoId + '\')" ' + disabled + ' title="Iniciar servicio">' + ICONS.start + ' Iniciar</button>';
   } else {
-    h += '<button class="btn" onclick="startService(\'' + repoId + '\')" ' + (isBusy ? 'disabled' : '') + ' title="Iniciar servicio">' + ICONS.start + ' Iniciar</button>';
-    h += '<button class="btn" onclick="restartService(\'' + repoId + '\')" ' + (isBusy ? 'disabled' : '') + ' title="Reiniciar servicio">' + ICONS.restart + ' Reiniciar</button>';
+    h += '<button class="btn" onclick="startService(\'' + repoId + '\')" ' + disabled + ' title="Iniciar servicio">' + ICONS.start + ' Iniciar</button>';
+    h += '<button class="btn" onclick="restartService(\'' + repoId + '\')" ' + disabled + ' title="Reiniciar servicio">' + ICONS.restart + ' Reiniciar</button>';
   }
 
-  h += '<button class="btn" onclick="removeRepo(\'' + repoId + '\')" ' + (isBusy ? 'disabled' : '') + ' title="Eliminar repositorio">' + ICONS.remove + ' Eliminar</button>';
+  h += '<button class="btn" onclick="removeRepo(\'' + repoId + '\')" ' + disabled + ' title="Eliminar repositorio">' + ICONS.remove + ' Eliminar</button>';
 
   return h;
 }
@@ -768,7 +807,20 @@ function updateStatusBadge(repoId, st) {
   var card = document.getElementById('card-' + sid);
   if (!card) return;
   var badges = card.querySelector('.repo-card-badges');
-  if (badges) badges.innerHTML = getSvcBadgeHtml(repoSvc[repoId]) + getStatusBadgeHtml(st);
+  if (!badges) return;
+  var busyStates = ['checking','downloading','stopping','replacing','starting','verifying'];
+  var svcHtml = getSvcBadgeHtml(repoSvc[repoId]);
+  var statusHtml = '';
+  if (!repoInstalled[repoId]) {
+    if (busyStates.indexOf(st) !== -1) {
+      statusHtml = '<span class="badge badge--busy"><span class="spinner"></span> instalando</span>';
+    } else {
+      statusHtml = '<span class="badge badge--stopped">no instalado</span>';
+    }
+  } else {
+    statusHtml = getStatusBadgeHtml(st);
+  }
+  badges.innerHTML = svcHtml + statusHtml;
 }
 
 function updateSvcBadge(repoId, sid) {
@@ -942,7 +994,36 @@ function startService(id) {
     });
 }
 
-function stopService(id) {
+	function installRepo(id) {
+	  repoStatus[id] = 'checking';
+	  updateStatusBadge(id, 'checking');
+	  updateButtons(id, 'checking');
+	  connectRepoSSE(id);
+	  fetch('/api/repos/install', {
+	    method:'POST',
+	    headers:{'Content-Type':'application/json'},
+	    body:JSON.stringify({id:id})
+	  })
+	    .then(function(r){return r.json()})
+	    .then(function(data) {
+	      if (data.status === 'installing') {
+	        showToast('Instalación iniciada para ' + id, 'success');
+	      } else if (data.status === 'already_installed') {
+	        repoInstalled[id] = true;
+	        updateStatusBadge(id, 'idle');
+	        updateButtons(id, 'idle');
+	        showToast(id + ' ya está instalado', 'success');
+	      }
+	    })
+	    .catch(function(){
+	      repoStatus[id] = 'idle';
+	      updateStatusBadge(id, 'idle');
+	      updateButtons(id, 'idle');
+	      showToast('Error al iniciar instalación', 'error');
+	    });
+	}
+
+	function stopService(id) {
   fetch('/api/repos/stop',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -997,15 +1078,16 @@ function removeRepo(id) {
   })
     .then(function(r){
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      if (repoSSEs[id]) {
-        repoSSEs[id].close();
-        delete repoSSEs[id];
-      }
-      delete repoStatus[id];
-      delete repoSvc[id];
-      delete repoLatestVer[id];
-      delete repoCurrentVer[id];
-      delete repoProgress[id];
+    	  if (repoSSEs[id]) {
+    	    repoSSEs[id].close();
+    	    delete repoSSEs[id];
+    	  }
+    	  delete repoStatus[id];
+    	  delete repoSvc[id];
+    	  delete repoLatestVer[id];
+    	  delete repoCurrentVer[id];
+    	  delete repoProgress[id];
+    	  delete repoInstalled[id];
       showToast('Repositorio eliminado', 'success');
       loadRepos();
     })
@@ -1024,6 +1106,8 @@ function hideAddModal() {
   document.getElementById('in-repo').value = '';
   document.getElementById('in-app').value = '';
   document.getElementById('in-asset').value = '';
+  document.getElementById('in-args').value = '';
+  document.getElementById('in-install-path').value = '';
   document.getElementById('modal-error').style.display = 'none';
 }
 
@@ -1040,8 +1124,13 @@ function addRepo() {
     return;
   }
 
+  var args = document.getElementById('in-args').value.trim();
+  var installPath = document.getElementById('in-install-path').value.trim();
+
   var body = { owner: owner, name: name, app_name: appName };
   if (asset) body.asset = asset;
+  if (args) body.custom_command = args;
+  if (installPath) body.install_path = installPath;
 
   fetch('/api/repos/add', {
     method: 'POST',

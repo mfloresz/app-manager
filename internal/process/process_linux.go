@@ -6,15 +6,26 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
 func processExists(pid int) bool {
-	process, err := os.FindProcess(pid)
+	// Check /proc/{pid}/status directly — more reliable than Signal(0)
+	// because Signal(0) can return true for zombie processes.
+	statusPath := fmt.Sprintf("/proc/%d/status", pid)
+	data, err := os.ReadFile(statusPath)
 	if err != nil {
 		return false
 	}
-	return process.Signal(syscall.Signal(0)) == nil
+	// Quick check: skip zombies
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "State:") {
+			// A zombie has state Z — treat as non-existent
+			return !strings.Contains(line, "Z")
+		}
+	}
+	return true
 }
 
 func killProcess(pid int) error {
@@ -29,16 +40,21 @@ func killProcess(pid int) error {
 }
 
 func killProcessForce(pid int) error {
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return err
+	// Send SIGKILL directly to the process — do NOT use process group
+	// (-pid) because:
+	//   1. Setsid changes PGID in ways that can cause the group kill to fail
+	//   2. If the process became a zombie after SIGTERM, group kill returns
+	//      ESRCH (ignored by old code), and the subsequent individual kill
+	//      also returns ESRCH, giving a misleading error
+	//   3. Sending to the process alone is sufficient
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+		return fmt.Errorf("SIGKILL(%d): %w", pid, err)
 	}
-	syscall.Kill(-pid, syscall.SIGKILL)
-	return process.Signal(syscall.SIGKILL)
+	return nil
 }
 
-func startProcess(path string) (int, error) {
-	cmd := exec.Command(path)
+func startProcess(path string, args ...string) (int, error) {
+	cmd := exec.Command(path, args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil

@@ -11,6 +11,7 @@ package process
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -69,8 +70,8 @@ func KillProcess(pid int) error {
 }
 
 // StartProcess starts a background process detached from the parent.
-func StartProcess(path string) (int, error) {
-	return startProcess(path)
+func StartProcess(path string, args ...string) (int, error) {
+	return startProcess(path, args...)
 }
 
 // IsRunning checks if an app is running by reading its PID file and
@@ -132,9 +133,9 @@ func (pm *Manager) Stop(appName string) (bool, error) {
 	return true, nil
 }
 
-// Start starts an app, saves its PID, and returns the PID.
+// Start starts an app with optional arguments, saves its PID, and returns the PID.
 // It looks for the binary in multiple locations.
-func (pm *Manager) Start(appName string, appPath string) (int, error) {
+func (pm *Manager) Start(appName string, appPath string, args ...string) (int, error) {
 	// Verify the binary exists
 	if _, err := os.Stat(appPath); err != nil {
 		// Fall back to PATH lookup
@@ -145,7 +146,7 @@ func (pm *Manager) Start(appName string, appPath string) (int, error) {
 		appPath = found
 	}
 
-	pid, err := StartProcess(appPath)
+	pid, err := StartProcess(appPath, args...)
 	if err != nil {
 		return 0, fmt.Errorf("error al iniciar %s: %w", appPath, err)
 	}
@@ -203,3 +204,73 @@ func FindAppBinary(name string) (string, error) {
 // LookPath searches for an executable in PATH.
 // Wrap exec.LookPath for platform safety.
 var LookPath = lookPath
+
+// SplitArgs parses a custom command string into a slice of arguments.
+// Uses strings.Fields for simple space-separated tokens.
+func SplitArgs(cmd string) []string {
+	if cmd == "" {
+		return nil
+	}
+	return strings.Fields(cmd)
+}
+
+// DetectInstallDir returns the best directory for installing binaries
+// based on the current platform (Termux, Linux, etc.).
+func DetectInstallDir() string {
+	// Termux detection
+	if prefix := os.Getenv("PREFIX"); prefix != "" {
+		return filepath.Join(prefix, "bin")
+	}
+	home := os.Getenv("HOME")
+	if home != "" {
+		return filepath.Join(home, "bin")
+	}
+	exe, err := os.Executable()
+	if err == nil {
+		return filepath.Dir(exe)
+	}
+	return "/usr/local/bin"
+}
+
+// EnsureInstallDir creates the install directory if it doesn't exist.
+func EnsureInstallDir(dir string) error {
+	return os.MkdirAll(dir, 0755)
+}
+
+// BinaryExists checks if an app binary exists in known locations.
+func BinaryExists(appName string) bool {
+	_, err := FindAppBinary(appName)
+	return err == nil
+}
+
+// InstallBinary installs a binary to a target directory and makes it executable.
+func InstallBinary(srcPath, destDir, appName string) (string, error) {
+	if err := EnsureInstallDir(destDir); err != nil {
+		return "", fmt.Errorf("crear directorio %s: %w", destDir, err)
+	}
+	destPath := filepath.Join(destDir, appName)
+	if err := copyFile(srcPath, destPath); err != nil {
+		return "", fmt.Errorf("copiar binario: %w", err)
+	}
+	if err := os.Chmod(destPath, 0755); err != nil {
+		return "", fmt.Errorf("establecer permisos: %w", err)
+	}
+	return destPath, nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
+}
