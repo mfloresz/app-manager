@@ -363,16 +363,6 @@ body {
     <span class="stat-value" id="stat-running">0</span>
     <span class="stat-label">activos</span>
   </div>
-  <div class="stat-item">
-    <svg class="stat-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1v6l2 2"/><circle cx="7" cy="7" r="6"/></svg>
-    <span class="stat-value" id="stat-updates">0</span>
-    <span class="stat-label">pendientes</span>
-  </div>
-  <div class="stat-item">
-    <svg class="stat-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="6"/><path d="M7 4v4l2.5 1.5"/></svg>
-    <span class="stat-value" id="stat-uptime">--</span>
-    <span class="stat-label">uptime</span>
-  </div>
 </div>
 
 <!-- ══════ MAIN LAYOUT ══════ -->
@@ -546,7 +536,7 @@ fetch('/api/platform').then(function(r){return r.json()}).then(function(d){
   detectedArch = d.arch;
   document.getElementById('plat').textContent = d.os + '/' + d.arch;
   document.getElementById('in-plat-os').value = d.os;
-  populateArchSelect('in-plat-arch', d.arch);
+  populateArchSelect('in-plat-arch', d.os, d.arch);
   updateAssetPreview();
 }).catch(function(){});
 
@@ -555,18 +545,21 @@ loadRepos();
 document.getElementById('in-app').addEventListener('input', updateAssetPreview);
 document.getElementById('in-plat-arch').addEventListener('change', updateAssetPreview);
 
-function populateArchSelect(selectId, currentArch) {
+function populateArchSelect(selectId, platformOS, currentArch) {
   var sel = document.getElementById(selectId);
   if (!sel) return;
   sel.innerHTML = '';
+
   var options = [];
-  if (currentArch === 'arm') {
+  var isAndroid = platformOS === 'android';
+  if (isAndroid || currentArch === 'arm') {
     options = ['arm', 'armv7', 'arm64'];
     sel.disabled = false;
   } else {
     options = [currentArch];
     sel.disabled = true;
   }
+
   options.forEach(function(a) {
     var opt = document.createElement('option');
     opt.value = a;
@@ -953,34 +946,12 @@ function updateStats() {
   document.getElementById('stat-repos').textContent = repos.length;
 
   var activeCount = 0;
-  var updatesCount = 0;
-
   repos.forEach(function(r) {
     if (repoSvc[r.id] === 'running') activeCount++;
-
-    var cur = repoCurrentVer[r.id] || r.current_version;
-    var lat = repoLatestVer[r.id] || r.latest_version;
-    if (cur && lat && cur !== lat && cur !== '--' && lat !== '--') {
-      updatesCount++;
-    }
   });
 
   document.getElementById('stat-running').textContent = activeCount;
-  document.getElementById('stat-updates').textContent = updatesCount;
 }
-
-// UPTIME COUNTER
-var startTime = Date.now();
-setInterval(function() {
-  var elapsed = Math.floor((Date.now() - startTime) / 1000);
-  var h = Math.floor(elapsed / 3600);
-  var m = Math.floor((elapsed % 3600) / 60);
-  var s = elapsed % 60;
-  var str = '';
-  if (h > 0) str += h + 'h ';
-  str += m + 'm ' + s + 's';
-  document.getElementById('stat-uptime').textContent = str;
-}, 1000);
 
 // SERVICE POLLING
 function fetchServiceStatuses() {
@@ -1209,7 +1180,7 @@ function editRepo(id) {
   // Platform
   var os = repo.platform_os || detectedOS;
   document.getElementById('edit-plat-os').value = os;
-  populateArchSelect('edit-plat-arch', repo.platform_arch || detectedArch);
+  populateArchSelect('edit-plat-arch', os, repo.platform_arch || detectedArch);
 
   document.getElementById('edit-modal-error').style.display = 'none';
   document.getElementById('edit-modal').classList.add('active');
@@ -1270,7 +1241,7 @@ function showAddModal() {
   document.getElementById('in-owner').focus();
   // Reset platform fields to detected values
   document.getElementById('in-plat-os').value = detectedOS;
-  populateArchSelect('in-plat-arch', detectedArch);
+  populateArchSelect('in-plat-arch', detectedOS, detectedArch);
   updateAssetPreview();
 }
 
