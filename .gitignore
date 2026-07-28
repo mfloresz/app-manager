@@ -4,8 +4,8 @@
 *.dll
 *.so
 *.dylib
-ap-manager
-updater
+/ap-manager
+/updater
 updater.new
 
 # PID files
