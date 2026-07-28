@@ -507,9 +507,24 @@ func fallbackAssetNames(appName, platformOS, platformArch, runtimeOS, runtimeArc
 	// Primary: appName-OS-ARCH
 	names = append(names, fmt.Sprintf("%s-%s-%s", appName, osName, arch))
 
+	// If arch is "arm", also try armv7 and armv6 (common release naming)
+	if arch == "arm" {
+		names = append(names, fmt.Sprintf("%s-%s-%s", appName, osName, "armv7"))
+		names = append(names, fmt.Sprintf("%s-%s-%s", appName, osName, "armv6"))
+		names = append(names, fmt.Sprintf("%s-%s-%s", appName, osName, "armv7l"))
+	}
+	// If arch is "arm64", also try aarch64
+	if arch == "arm64" {
+		names = append(names, fmt.Sprintf("%s-%s-%s", appName, osName, "aarch64"))
+	}
+
 	// If Android (Termux), try linux variant as fallback
 	if osName == "android" {
 		names = append(names, fmt.Sprintf("%s-%s-%s", appName, "linux", arch))
+		if arch == "arm" {
+			names = append(names, fmt.Sprintf("%s-%s-%s", appName, "linux", "armv7"))
+			names = append(names, fmt.Sprintf("%s-%s-%s", appName, "linux", "armv6"))
+		}
 		names = append(names, fmt.Sprintf("%s-%s-%s", appName, "linux", "arm64"))
 	}
 
@@ -518,6 +533,9 @@ func fallbackAssetNames(appName, platformOS, platformArch, runtimeOS, runtimeArc
 
 	// Try common compressed variants
 	names = append(names, fmt.Sprintf("%s-%s-%s.tar.gz", appName, osName, arch))
+	if arch == "arm" {
+		names = append(names, fmt.Sprintf("%s-%s-%s.tar.gz", appName, osName, "armv7"))
+	}
 	names = append(names, fmt.Sprintf("%s-%s-%s.tar.xz", appName, osName, arch))
 
 	return names

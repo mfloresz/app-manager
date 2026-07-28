@@ -40,6 +40,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/repos/check", h.handleCheckVersion)
 	mux.HandleFunc("/api/repos/update", h.handleUpdateRepo)
 	mux.HandleFunc("/api/repos/install", h.handleInstallRepo)
+	mux.HandleFunc("/api/repos/edit", h.handleEditRepo)
 	mux.HandleFunc("/api/repos/status", h.handleRepoStatus)
 	mux.HandleFunc("/api/repos/stop", h.handleStopRepo)
 	mux.HandleFunc("/api/repos/start", h.handleStartRepo)
@@ -140,6 +141,66 @@ func (h *Handler) handleRemoveRepo(w http.ResponseWriter, r *http.Request) {
 	h.Broker.EmitLog("_system", fmt.Sprintf("Repositorio eliminado: %s", input.ID))
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Eliminado"))
+}
+
+// handleEditRepo updates a repository's configuration fields.
+func (h *Handler) handleEditRepo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var input struct {
+		ID            string  `json:"id"`
+		AppName       *string `json:"app_name,omitempty"`
+		Asset         *string `json:"asset,omitempty"`
+		CustomCommand *string `json:"custom_command,omitempty"`
+		InstallPath   *string `json:"install_path,omitempty"`
+		PlatOS        *string `json:"platform_os,omitempty"`
+		PlatArch      *string `json:"platform_arch,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, "JSON inválido: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if input.ID == "" {
+		http.Error(w, "Falta id", http.StatusBadRequest)
+		return
+	}
+
+	repo := h.Store.Find(input.ID)
+	if repo == nil {
+		http.Error(w, "No encontrado", http.StatusNotFound)
+		return
+	}
+
+	h.Store.Update(input.ID, func(r *storage.Repository) {
+		if input.AppName != nil {
+			r.AppName = *input.AppName
+		}
+		if input.Asset != nil {
+			r.AssetName = *input.Asset
+		}
+		if input.CustomCommand != nil {
+			r.CustomCommand = *input.CustomCommand
+		}
+		if input.InstallPath != nil {
+			r.InstallPath = *input.InstallPath
+		}
+		if input.PlatOS != nil {
+			r.PlatformOS = *input.PlatOS
+		}
+		if input.PlatArch != nil {
+			r.PlatformArch = *input.PlatArch
+		}
+	})
+
+	h.Broker.EmitLog("_system", fmt.Sprintf("Repositorio actualizado: %s", input.ID))
+
+	// Return updated repo
+	updated := h.Store.Find(input.ID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(updated)
 }
 
 // handleCheckVersion checks the latest release for a repo.

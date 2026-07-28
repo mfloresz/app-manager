@@ -443,7 +443,7 @@ body {
       <div class="form-group">
         <label class="form-label" for="in-args">Argumentos extra <span style="color:var(--text-muted);font-weight:400">(opcional)</span></label>
         <input class="form-input" id="in-args" type="text" placeholder="ej. --port 8080 --verbose" autocomplete="off">
-        <div class="form-hint">Se pasarán al binario al iniciarlo (separados por espacios)</div>
+        <div class="form-hint">Se pasarán al binario al iniciarlo (separados por espacios). Soporta $VAR</div>
       </div>
       <div class="form-group">
         <label class="form-label" for="in-install-path">Ruta de instalación <span style="color:var(--text-muted);font-weight:400">(opcional)</span></label>
@@ -455,6 +455,46 @@ body {
     <div class="modal-actions">
       <button class="btn" onclick="hideAddModal()">Cancelar</button>
       <button class="btn btn--primary" onclick="addRepo()">Añadir</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ EDIT MODAL ══════ -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Editar Repositorio</h2>
+      <button class="modal-close" onclick="hideEditModal()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+    <div class="modal-form">
+      <div class="form-group">
+        <label class="form-label" for="edit-id">ID del repositorio</label>
+        <input class="form-input" id="edit-id" type="text" readonly style="color:var(--text-muted);">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="edit-app">Nombre del binario</label>
+        <input class="form-input" id="edit-app" type="text" placeholder="ej. translator-server" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="edit-asset">Asset name exacto <span style="color:var(--text-muted);font-weight:400">(vacío = auto)</span></label>
+        <input class="form-input" id="edit-asset" type="text" placeholder="ej. translator-server-android-armv7-v0.7.1" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="edit-args">Argumentos extra <span style="color:var(--text-muted);font-weight:400">(vacío = ninguno)</span></label>
+        <input class="form-input" id="edit-args" type="text" placeholder="ej. --port 8080 --verbose" autocomplete="off">
+        <div class="form-hint">Se pasarán al binario al iniciarlo. Soporta $VAR como $HOME</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="edit-install-path">Ruta de instalación <span style="color:var(--text-muted);font-weight:400">(vacío = auto)</span></label>
+        <input class="form-input" id="edit-install-path" type="text" placeholder="auto: ~/bin/ o $PREFIX/bin" autocomplete="off">
+      </div>
+      <div class="form-error" id="edit-modal-error"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="hideEditModal()">Cancelar</button>
+      <button class="btn btn--primary" onclick="saveEditRepo()">Guardar cambios</button>
     </div>
   </div>
 </div>
@@ -499,6 +539,7 @@ var ICONS = {
   start: '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5.5"/><path d="M5.5 4.5v5l4-2.5-4-2.5z" fill="currentColor"/></svg>',
   remove: '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5.5"/><path d="M4.5 4.5l5 5M9.5 4.5l-5 5"/></svg>',
   plus: '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 2v10M2 7h10"/></svg>',
+  edit: '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10.5 1.5l2 2L4 12H2v-2l8.5-8.5z"/></svg>',
   running: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="5"/><path d="M4 6l1.5 1.5L8 4"/></svg>',
   stopped: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="5"/><path d="M4 4l4 4M8 4l-4 4"/></svg>'
 };
@@ -773,6 +814,7 @@ function getButtonsHtml(repoId, st, svc) {
     var h = '';
     h += '<button class="btn" onclick="checkRepo(\'' + repoId + '\')" ' + disabled + ' title="Buscar versi\u00f3n disponible">' + ICONS.check + ' Buscar</button>';
     h += '<button class="btn btn--primary" onclick="installRepo(\'' + repoId + '\')" ' + disabled + ' title="Descargar e instalar binario">' + ICONS.download + ' Instalar</button>';
+    h += '<button class="btn" onclick="editRepo(\'' + repoId + '\')" title="Editar configuraci\u00f3n">' + ICONS.edit + ' Editar</button>';
     h += '<button class="btn" onclick="removeRepo(\'' + repoId + '\')" ' + disabled + ' title="Eliminar repositorio">' + ICONS.remove + ' Eliminar</button>';
     return h;
   }
@@ -798,6 +840,8 @@ function getButtonsHtml(repoId, st, svc) {
   }
 
   h += '<button class="btn" onclick="removeRepo(\'' + repoId + '\')" ' + disabled + ' title="Eliminar repositorio">' + ICONS.remove + ' Eliminar</button>';
+
+  h += '<button class="btn" onclick="editRepo(\'' + repoId + '\')" title="Editar configuraci\u00f3n">' + ICONS.edit + ' Editar</button>';
 
   return h;
 }
@@ -1091,7 +1135,69 @@ function removeRepo(id) {
       showToast('Repositorio eliminado', 'success');
       loadRepos();
     })
-    .catch(function(err){ showToast('Error al eliminar: ' + err.message, 'error'); });
+	    .catch(function(err){ showToast('Error al eliminar: ' + err.message, 'error'); });
+}
+
+// EDIT REPO
+var editingRepoId = null;
+
+function editRepo(id) {
+  editingRepoId = id;
+  var repo = repos.find(function(r){ return r.id === id; });
+  if (!repo) { showToast('Repositorio no encontrado', 'error'); return; }
+
+  document.getElementById('edit-id').value = id;
+  document.getElementById('edit-app').value = repo.app_name || '';
+  document.getElementById('edit-asset').value = repo.asset_name || '';
+  document.getElementById('edit-args').value = repo.custom_command || '';
+  document.getElementById('edit-install-path').value = repo.install_path || '';
+  document.getElementById('edit-modal-error').style.display = 'none';
+  document.getElementById('edit-modal').classList.add('active');
+}
+
+function hideEditModal() {
+  document.getElementById('edit-modal').classList.remove('active');
+  editingRepoId = null;
+}
+
+function saveEditRepo() {
+  var id = editingRepoId;
+  if (!id) return;
+
+  var errEl = document.getElementById('edit-modal-error');
+  var body = { id: id };
+
+  var appName = document.getElementById('edit-app').value.trim();
+  if (appName) body.app_name = appName;
+
+  var asset = document.getElementById('edit-asset').value.trim();
+  // Only send if non-empty, otherwise keep auto-detect
+  if (asset) body.asset = asset;
+
+  var args = document.getElementById('edit-args').value.trim();
+  if (args) body.custom_command = args;
+
+  var installPath = document.getElementById('edit-install-path').value.trim();
+  if (installPath) body.install_path = installPath;
+
+  fetch('/api/repos/edit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  .then(function(r){
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  })
+  .then(function(data){
+    hideEditModal();
+    showToast('Repositorio actualizado: ' + id, 'success');
+    loadRepos();
+  })
+  .catch(function(err){
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+  });
 }
 
 // MODAL & TOAST

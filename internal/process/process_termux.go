@@ -6,35 +6,47 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
 func processExists(pid int) bool {
-	process, err := os.FindProcess(pid)
+	// Check /proc/{pid}/status directly — more reliable than Signal(0)
+	// because Signal(0) can return true for zombie processes on Android/Termux.
+	statusPath := fmt.Sprintf("/proc/%d/status", pid)
+	data, err := os.ReadFile(statusPath)
 	if err != nil {
 		return false
 	}
-	return process.Signal(syscall.Signal(0)) == nil
+	// Quick check: skip zombies
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "State:") {
+			// A zombie has state Z — treat as non-existent
+			return !strings.Contains(line, "Z")
+		}
+	}
+	return true
 }
 
 func killProcess(pid int) error {
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return err
-	}
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("SIGTERM: %w", err)
+	// Use syscall.Kill directly instead of os.FindProcess+Signal,
+	// because os.FindProcess doesn't validate existence on Linux/Android.
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		return fmt.Errorf("SIGTERM(%d): %w", pid, err)
 	}
 	return nil
 }
 
 func killProcessForce(pid int) error {
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return err
+	// Send SIGKILL directly via syscall.
+	// Do NOT use process group kill (-pid) because:
+	//   1. Setsid changes PGID in ways that can cause the group kill to fail
+	//   2. If the process became a zombie after SIGTERM, group kill returns ESRCH
+	//   3. Sending to the process alone is sufficient
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+		return fmt.Errorf("SIGKILL(%d): %w", pid, err)
 	}
-	syscall.Kill(-pid, syscall.SIGKILL)
-	return process.Signal(syscall.SIGKILL)
+	return nil
 }
 
 func startProcess(path string, args ...string) (int, error) {

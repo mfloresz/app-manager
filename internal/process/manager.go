@@ -206,12 +206,15 @@ func FindAppBinary(name string) (string, error) {
 var LookPath = lookPath
 
 // SplitArgs parses a custom command string into a slice of arguments.
+// Expands environment variables ($VAR, ${VAR}) before splitting.
 // Uses strings.Fields for simple space-separated tokens.
 func SplitArgs(cmd string) []string {
 	if cmd == "" {
 		return nil
 	}
-	return strings.Fields(cmd)
+	// Expand environment variables so $HOME, $VAR, etc. work
+	expanded := os.ExpandEnv(cmd)
+	return strings.Fields(expanded)
 }
 
 // DetectInstallDir returns the best directory for installing binaries
