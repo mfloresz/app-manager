@@ -296,6 +296,8 @@ body {
 .form-label { display: block; font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; }
 .form-input { width: 100%; padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 0.8rem; outline: none; font-family: var(--font-sans); }
 .form-input:focus { border-color: var(--accent); }
+.form-select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='%2378726A'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; padding-right: 26px; cursor: pointer; }
+.form-select:disabled { opacity: 0.5; cursor: default; }
 .form-hint { font-size: 0.68rem; color: var(--text-muted); margin-top: 4px; background: var(--surface-alt); padding: 4px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
 .form-error { color: var(--danger); font-size: 0.72rem; margin-top: 6px; display: none; font-weight: 500; }
 .modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; border-top: 1px solid var(--border); padding-top: 12px; }
@@ -431,10 +433,22 @@ body {
       </div>
       <div class="form-group">
         <label class="form-label" for="in-app">Nombre del binario</label>
-        <input class="form-input" id="in-app" type="text" placeholder="ej. yara" autocomplete="off">
+        <input class="form-input" id="in-app" type="text" placeholder="ej. translator-server" autocomplete="off">
       </div>
       <div class="form-group">
-        <div class="form-hint" id="asset-preview">Asset esperado: <strong id="asset-name">yara-linux-amd64</strong></div>
+        <label class="form-label">Plataforma</label>
+        <div style="display:flex;gap:8px;">
+          <div style="flex:1">
+            <input class="form-input" id="in-plat-os" type="text" readonly style="color:var(--text-muted);" placeholder="OS">
+          </div>
+          <div style="flex:1">
+            <select class="form-input form-select" id="in-plat-arch"></select>
+          </div>
+        </div>
+        <div class="form-hint" id="arch-hint">Arquitectura detectada automáticamente. Si aparece "arm", elige la variante correcta (armv7/arm64).</div>
+      </div>
+      <div class="form-group">
+        <div class="form-hint" id="asset-preview">Asset esperado: <strong id="asset-name">translator-server-android-armv7</strong></div>
       </div>
       <div class="form-group">
         <label class="form-label" for="in-asset">Asset name exacto <span style="color:var(--text-muted);font-weight:400">(opcional)</span></label>
@@ -490,6 +504,18 @@ body {
         <label class="form-label" for="edit-install-path">Ruta de instalación <span style="color:var(--text-muted);font-weight:400">(vacío = auto)</span></label>
         <input class="form-input" id="edit-install-path" type="text" placeholder="auto: ~/bin/ o $PREFIX/bin" autocomplete="off">
       </div>
+      <div class="form-group">
+        <label class="form-label">Plataforma</label>
+        <div style="display:flex;gap:8px;">
+          <div style="flex:1">
+            <input class="form-input" id="edit-plat-os" type="text" readonly style="color:var(--text-muted);" placeholder="OS">
+          </div>
+          <div style="flex:1">
+            <select class="form-input form-select" id="edit-plat-arch"></select>
+          </div>
+        </div>
+        <div class="form-hint">Cambia la arquitectura si el asset detectado no es correcto.</div>
+      </div>
       <div class="form-error" id="edit-modal-error"></div>
     </div>
     <div class="modal-actions">
@@ -511,22 +537,50 @@ var repoLatestVer = {};
 var repoCurrentVer = {};
 var repoProgress = {};
 var repoInstalled = {};
+var detectedOS = '';
+var detectedArch = '';
 
 // INIT
 fetch('/api/platform').then(function(r){return r.json()}).then(function(d){
+  detectedOS = d.os;
+  detectedArch = d.arch;
   document.getElementById('plat').textContent = d.os + '/' + d.arch;
-  document.getElementById('asset-name').textContent = 'yara-' + d.os + '-' + d.arch;
+  document.getElementById('in-plat-os').value = d.os;
+  populateArchSelect('in-plat-arch', d.arch);
+  updateAssetPreview();
 }).catch(function(){});
 
 loadRepos();
 
 document.getElementById('in-app').addEventListener('input', updateAssetPreview);
+document.getElementById('in-plat-arch').addEventListener('change', updateAssetPreview);
+
+function populateArchSelect(selectId, currentArch) {
+  var sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = '';
+  var options = [];
+  if (currentArch === 'arm') {
+    options = ['arm', 'armv7', 'arm64'];
+    sel.disabled = false;
+  } else {
+    options = [currentArch];
+    sel.disabled = true;
+  }
+  options.forEach(function(a) {
+    var opt = document.createElement('option');
+    opt.value = a;
+    opt.textContent = a;
+    if (a === currentArch) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
 
 function updateAssetPreview() {
-  var app = document.getElementById('in-app').value || 'yara';
-  fetch('/api/platform').then(function(r){return r.json()}).then(function(d){
-    document.getElementById('asset-name').textContent = app + '-' + d.os + '-' + d.arch;
-  }).catch(function(){});
+  var app = document.getElementById('in-app').value || 'translator-server';
+  var os = document.getElementById('in-plat-os').value || detectedOS;
+  var arch = document.getElementById('in-plat-arch').value || detectedArch;
+  document.getElementById('asset-name').textContent = app + '-' + os + '-' + arch;
 }
 
 // ICONS
@@ -1151,6 +1205,12 @@ function editRepo(id) {
   document.getElementById('edit-asset').value = repo.asset_name || '';
   document.getElementById('edit-args').value = repo.custom_command || '';
   document.getElementById('edit-install-path').value = repo.install_path || '';
+
+  // Platform
+  var os = repo.platform_os || detectedOS;
+  document.getElementById('edit-plat-os').value = os;
+  populateArchSelect('edit-plat-arch', repo.platform_arch || detectedArch);
+
   document.getElementById('edit-modal-error').style.display = 'none';
   document.getElementById('edit-modal').classList.add('active');
 }
@@ -1173,6 +1233,10 @@ function saveEditRepo() {
   var asset = document.getElementById('edit-asset').value.trim();
   // Only send if non-empty, otherwise keep auto-detect
   if (asset) body.asset = asset;
+
+  // Platform overrides (always send to allow resetting to detected)
+  var arch = document.getElementById('edit-plat-arch').value;
+  if (arch) body.platform_arch = arch;
 
   var args = document.getElementById('edit-args').value.trim();
   if (args) body.custom_command = args;
@@ -1204,6 +1268,10 @@ function saveEditRepo() {
 function showAddModal() {
   document.getElementById('add-modal').classList.add('active');
   document.getElementById('in-owner').focus();
+  // Reset platform fields to detected values
+  document.getElementById('in-plat-os').value = detectedOS;
+  populateArchSelect('in-plat-arch', detectedArch);
+  updateAssetPreview();
 }
 
 function hideAddModal() {
@@ -1233,7 +1301,13 @@ function addRepo() {
   var args = document.getElementById('in-args').value.trim();
   var installPath = document.getElementById('in-install-path').value.trim();
 
-  var body = { owner: owner, name: name, app_name: appName };
+  var body = {
+    owner: owner,
+    name: name,
+    app_name: appName,
+    platform_os: document.getElementById('in-plat-os').value || detectedOS,
+    platform_arch: document.getElementById('in-plat-arch').value || detectedArch
+  };
   if (asset) body.asset = asset;
   if (args) body.custom_command = args;
   if (installPath) body.install_path = installPath;
