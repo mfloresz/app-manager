@@ -10,6 +10,7 @@
 package process
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ap-manager/internal/events"
 )
 
 // Manager handles starting, stopping, and monitoring processes.
@@ -154,6 +157,55 @@ func (pm *Manager) Start(appName string, appPath string, args ...string) (int, e
 	// Save PID
 	if err := pm.WritePid(appName, pid); err != nil {
 		// Non-fatal: process is running but we couldn't save PID
+		fmt.Fprintf(os.Stderr, "Advertencia: no se pudo guardar PID: %v\n", err)
+	}
+
+	return pid, nil
+}
+
+// StartWithCapture starts an app and captures its stdout/stderr, emitting
+// each line as an EventAppOutput via the SSE broker.
+// It looks for the binary in multiple locations and saves the PID.
+func (pm *Manager) StartWithCapture(appName, appPath string, broker *events.Broker, repoID string, args ...string) (int, error) {
+	// Verify the binary exists
+	if _, err := os.Stat(appPath); err != nil {
+		found, err := FindAppBinary(appName)
+		if err != nil {
+			return 0, fmt.Errorf("binario '%s' no encontrado: %w", appName, err)
+		}
+		appPath = found
+	}
+
+	stdoutR, stdoutW := io.Pipe()
+	stderrR, stderrW := io.Pipe()
+
+	pid, err := startProcessWithOutput(appPath, stdoutW, stderrW, args...)
+	if err != nil {
+		stdoutW.Close()
+		stderrW.Close()
+		return 0, fmt.Errorf("error al iniciar %s: %w", appPath, err)
+	}
+
+	// Stream stdout lines to the broker
+	go func() {
+		defer stdoutW.Close()
+		scanner := bufio.NewScanner(stdoutR)
+		for scanner.Scan() {
+			broker.Emit(events.NewAppOutput(repoID, scanner.Text(), false))
+		}
+	}()
+
+	// Stream stderr lines to the broker
+	go func() {
+		defer stderrW.Close()
+		scanner := bufio.NewScanner(stderrR)
+		for scanner.Scan() {
+			broker.Emit(events.NewAppOutput(repoID, scanner.Text(), true))
+		}
+	}()
+
+	// Save PID
+	if err := pm.WritePid(appName, pid); err != nil {
 		fmt.Fprintf(os.Stderr, "Advertencia: no se pudo guardar PID: %v\n", err)
 	}
 

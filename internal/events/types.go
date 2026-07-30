@@ -14,6 +14,7 @@ const (
 	EventUpdate    EventType = "update"
 	EventError     EventType = "error"
 	EventSystem    EventType = "system"
+	EventAppOutput EventType = "app_output"
 )
 
 // SSEEvent is a structured event sent via SSE.
@@ -34,6 +35,9 @@ type SSEEvent struct {
 	// Status fields
 	Status     string `json:"status,omitempty"` // idle, checking, downloading, stopping, replacing, starting, verifying, completed, failed
 	ServiceRun string `json:"service_run,omitempty"` // running, stopped
+
+	// App output fields
+	IsError bool `json:"is_error,omitempty"` // true for stderr output
 
 	// Error
 	Error string `json:"error,omitempty"`
@@ -104,6 +108,16 @@ func NewUpdateFailed(repoID, errMsg string) SSEEvent {
 		Timestamp: time.Now().Format("15:04:05"),
 		Status:    "failed",
 		Error:     errMsg,
+	}
+}
+
+func NewAppOutput(repoID, line string, isError bool) SSEEvent {
+	return SSEEvent{
+		Type:      EventAppOutput,
+		RepoID:    repoID,
+		Timestamp: time.Now().Format("15:04:05"),
+		Message:   line,
+		IsError:   isError,
 	}
 }
 

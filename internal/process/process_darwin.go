@@ -4,6 +4,7 @@ package process
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"syscall"
@@ -41,6 +42,20 @@ func startProcess(path string, args ...string) (int, error) {
 	cmd := exec.Command(path, args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
+	cmd.Stdin = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true,
+	}
+	if err := cmd.Start(); err != nil {
+		return 0, fmt.Errorf("exec: %w", err)
+	}
+	return cmd.Process.Pid, nil
+}
+
+func startProcessWithOutput(path string, stdout, stderr io.Writer, args ...string) (int, error) {
+	cmd := exec.Command(path, args...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	cmd.Stdin = nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,

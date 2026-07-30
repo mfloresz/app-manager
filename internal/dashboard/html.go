@@ -65,6 +65,7 @@ body {
   color: var(--text);
   min-height: 100vh;
   line-height: 1.4;
+  overflow-x: hidden;
 }
 
 /* SCROLLBAR */
@@ -78,7 +79,7 @@ body {
    ═══════════════════════════════════════ */
 .header {
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--border-light);
   padding: 0 16px;
   height: 48px;
   display: flex;
@@ -88,8 +89,10 @@ body {
   position: sticky;
   top: 0;
   z-index: 50;
+  overflow: hidden;
 }
-.header-left { display: flex; align-items: center; gap: 10px; }
+.header-left { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
+.header-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .header-logo {
   width: 28px;
   height: 28px;
@@ -143,15 +146,21 @@ body {
 .stat-label { font-size: 0.7rem; color: var(--text-muted); }
 
 /* ═══════════════════════════════════════
+   PAGE WRAPPER
+   ═══════════════════════════════════════ */
+.page-wrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* ═══════════════════════════════════════
    LAYOUT
    ═══════════════════════════════════════ */
 .layout {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 16px;
-  max-width: 1200px;
-  margin: 0 auto;
+  padding: 0 16px 16px;
 }
 
 /* ═══════════════════════════════════════
@@ -161,7 +170,7 @@ body {
 .repos-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .repos-header h2 { font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
 .repos-count { font-size: 0.7rem; color: var(--accent); font-family: var(--font-mono); background: var(--accent-subtle); padding: 1px 6px; border-radius: 99px; margin-left: 6px; }
-.repos-grid { display: flex; flex-direction: column; gap: 10px; }
+.repos-grid { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
 
 .repo-card {
   background: var(--surface);
@@ -169,6 +178,8 @@ body {
   border-radius: var(--radius);
   padding: 12px;
   transition: border-color var(--transition);
+  overflow: hidden;
+  min-width: 0;
 }
 .repo-card:hover { border-color: var(--border-light); }
 
@@ -282,6 +293,80 @@ body {
 .log-console .log-line--system { color: var(--text-muted); font-style: italic; }
 
 /* ═══════════════════════════════════════
+   PER-CARD APP CONSOLE
+   ═══════════════════════════════════════ */
+.repo-console {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.repo-console-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.repo-console-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.repo-console-label::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.repo-console-actions {
+  display: flex;
+  gap: 2px;
+}
+.console-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.65rem;
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+  transition: all var(--transition);
+}
+.console-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.repo-console-output {
+  background: #121110;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  height: 120px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.repo-console-output .console-line { color: var(--text-secondary); margin-bottom: 1px; }
+.repo-console-output .console-line--err { color: var(--danger); }
+
+/* ═══════════════════════════════════════
    ADD REPO MODAL
    ═══════════════════════════════════════ */
 .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: center; backdrop-filter: blur(2px); }
@@ -326,6 +411,8 @@ body {
 </style>
 </head>
 <body>
+
+<div class="page-wrapper">
 
 <!-- ══════ HEADER ══════ -->
 <header class="header">
@@ -402,6 +489,8 @@ body {
     </div>
   </div>
 </div>
+
+</div><!-- /.page-wrapper -->
 
 <!-- ══════ ADD MODAL ══════ -->
 <div class="modal-overlay" id="add-modal">
@@ -609,9 +698,45 @@ function appendGlobalLog(msg, type, timestamp) {
   globalLog.scrollTop = globalLog.scrollHeight;
 }
 
+// ── Per-card console functions ──
+function appendCardConsole(repoId, msg, isError, timestamp) {
+  var sid = safeId(repoId);
+  var outputEl = document.getElementById('console-output-' + sid);
+  if (!outputEl) return;
+
+  // Show console wrapper
+  var wrapper = document.getElementById('console-' + sid);
+  if (wrapper) wrapper.style.display = 'flex';
+
+  // Limit lines to prevent DOM bloat
+  while (outputEl.children.length > 500) {
+    outputEl.removeChild(outputEl.firstChild);
+  }
+
+  var line = document.createElement('div');
+  line.className = 'console-line' + (isError ? ' console-line--err' : '');
+  var ts = timestamp ? '[' + timestamp + '] ' : '';
+  line.textContent = ts + msg;
+  outputEl.appendChild(line);
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+
+function toggleConsole(sid) {
+  var wrapper = document.getElementById('console-' + sid);
+  if (!wrapper) return;
+  wrapper.style.display = wrapper.style.display === 'none' ? 'flex' : 'none';
+}
+
+function clearCardConsole(sid) {
+  var outputEl = document.getElementById('console-output-' + sid);
+  if (outputEl) outputEl.innerHTML = '';
+}
+
 globalSrc.onmessage = function(e) {
   try {
     var evt = JSON.parse(e.data);
+    // Skip app output — goes to per-card console instead
+    if (evt.type === 'app_output') return;
     if (evt.message) {
       appendGlobalLog(evt.message, evt.type, evt.timestamp);
     }
@@ -723,8 +848,10 @@ function connectRepoSSE(repoId) {
         }
       }
 
-      // Output repo logs directly into main log console
-      if (evt.message) {
+      // App output → card console; everything else → global log
+      if (evt.type === 'app_output') {
+        appendCardConsole(repoId, evt.message, evt.is_error, evt.timestamp);
+      } else if (evt.message) {
         appendGlobalLog('[' + repoId + '] ' + evt.message, evt.type, evt.timestamp);
       }
 
@@ -819,6 +946,18 @@ function renderRepos() {
 	    // Actions
 	    html += '  <div class="actions" id="actions-' + sid + '">';
 	    html += getButtonsHtml(repo.id, st, svc);
+	    html += '  </div>';
+
+	    // App console
+	    html += '  <div class="repo-console" id="console-' + sid + '">';
+	    html += '    <div class="repo-console-header">';
+	    html += '      <span class="repo-console-label">Salida de la aplicaci\u00f3n</span>';
+	    html += '      <div class="repo-console-actions">';
+	    html += '        <button class="console-btn" onclick="clearCardConsole(\'' + sid + '\')" title="Limpiar">\ud83d\uddd1\ufe0f</button>';
+	    html += '        <button class="console-btn" onclick="toggleConsole(\'' + sid + '\')" title="Ocultar">\u2715</button>';
+	    html += '      </div>';
+	    html += '    </div>';
+	    html += '    <div class="repo-console-output" id="console-output-' + sid + '"></div>';
 	    html += '  </div>';
 
 	    html += '</div>';

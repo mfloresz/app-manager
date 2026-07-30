@@ -345,7 +345,7 @@ func (h *Handler) handleStartRepo(w http.ResponseWriter, r *http.Request) {
 
 	args := splitArgs(repo.CustomCommand)
 	h.Broker.EmitLog(repo.ID, "▶️ Iniciando "+repo.AppName+" "+strings.Join(args, " ")+" ...")
-	pid, err := h.ProcMan.Start(repo.AppName, appPath, args...)
+	pid, err := h.ProcMan.StartWithCapture(repo.AppName, appPath, h.Broker, repo.ID, args...)
 	if err != nil {
 		h.Broker.EmitError(repo.ID, "Error al iniciar: "+err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -420,7 +420,7 @@ func (h *Handler) handleRestartRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	args := splitArgs(repo.CustomCommand)
-	pid, err := h.ProcMan.Start(repo.AppName, appPath, args...)
+	pid, err := h.ProcMan.StartWithCapture(repo.AppName, appPath, h.Broker, repo.ID, args...)
 	if err != nil {
 		h.Broker.EmitError(repo.ID, "Error al reiniciar: "+err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
