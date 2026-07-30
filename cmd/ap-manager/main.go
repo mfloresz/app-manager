@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 
 	"ap-manager/internal/api"
 	"ap-manager/internal/dashboard"
@@ -72,6 +73,7 @@ func main() {
 	termuxPrefix := os.Getenv("PREFIX")
 	if termuxPrefix != "" {
 		fmt.Printf("Termux detectado: %s\n", termuxPrefix)
+		platOS = "android"
 	}
 
 	pipeline := &updater.Pipeline{
@@ -83,10 +85,39 @@ func main() {
 		Arch:    platArch,
 	}
 
+	// ── Add self repo if not present ──
+	selfID := strings.ToLower("mfloresz" + "/" + "app-manager")
+	if store.Find(selfID) == nil {
+		selfRepo := storage.Repository{
+			ID:             selfID,
+			Owner:          "mfloresz",
+			Name:           "app-manager",
+			AppName:        "ap-manager",
+			CurrentVersion: Version,
+			PlatformOS:     platOS,
+			PlatformArch:   platArch,
+			Installed:      true,
+			Status:         storage.StatusIdle,
+		}
+		if err := store.Add(selfRepo); err != nil {
+			fmt.Fprintf(os.Stderr, "Error al añadir auto-repo: %v\n", err)
+		} else {
+			fmt.Printf("Auto-repo añadido: %s (%s)\n", selfID, Version)
+		}
+	} else {
+		// Sync current version on every startup
+		store.Update(selfID, func(r *storage.Repository) {
+			r.CurrentVersion = Version
+			r.PlatformOS = platOS
+			r.PlatformArch = platArch
+		})
+	}
+	store.Save()
+
 	// ── Set up HTTP routes ──
 	mux := http.NewServeMux()
 
-	handler := api.NewHandler(store, broker, pipeline, procMan)
+	handler := api.NewHandler(store, broker, pipeline, procMan, Version)
 	handler.RegisterRoutes(mux)
 
 	// Dashboard SPA (catch-all)

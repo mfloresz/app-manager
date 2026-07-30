@@ -25,6 +25,7 @@ type Handler struct {
 	ProcMan *process.Manager
 	OS      string
 	Arch    string
+	Version string
 }
 
 // splitArgs parses a command string into arguments.
@@ -48,6 +49,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/events", h.handleSSE)
 	mux.HandleFunc("/api/events/global", h.handleGlobalSSE)
 	mux.HandleFunc("/api/platform", h.handlePlatform)
+	mux.HandleFunc("/api/self", h.handleSelfInfo)
+	mux.HandleFunc("/api/self/check", h.handleSelfCheck)
+	mux.HandleFunc("/api/self/update", h.handleSelfUpdate)
 }
 
 // handleRepos returns the list of repos as JSON.
@@ -86,8 +90,8 @@ func (h *Handler) handleAddRepo(w http.ResponseWriter, r *http.Request) {
 	id := strings.ToLower(input.Owner + "/" + input.Name)
 
 	// Check if already exists
-	for _, repo := range h.Store.List() {
-		if repo.ID == id {
+	for _, r := range h.Store.List() {
+		if r.ID == id {
 			http.Error(w, "El repositorio ya existe: "+id, http.StatusConflict)
 			return
 		}
@@ -152,6 +156,8 @@ func (h *Handler) handleEditRepo(w http.ResponseWriter, r *http.Request) {
 
 	var input struct {
 		ID            string  `json:"id"`
+		Owner         *string `json:"owner,omitempty"`
+		Name          *string `json:"name,omitempty"`
 		AppName       *string `json:"app_name,omitempty"`
 		Asset         *string `json:"asset,omitempty"`
 		CustomCommand *string `json:"custom_command,omitempty"`
@@ -168,13 +174,39 @@ func (h *Handler) handleEditRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo := h.Store.Find(input.ID)
-	if repo == nil {
+	// Fetch the old repo to compute new ID if owner/name changes
+	oldRepo := h.Store.Find(input.ID)
+	if oldRepo == nil {
 		http.Error(w, "No encontrado", http.StatusNotFound)
 		return
 	}
 
+	newOwner := oldRepo.Owner
+	newName := oldRepo.Name
+	if input.Owner != nil {
+		newOwner = *input.Owner
+	}
+	if input.Name != nil {
+		newName = *input.Name
+	}
+	newID := strings.ToLower(newOwner + "/" + newName)
+
+	// If ID changed, check there's no conflict
+	if newID != input.ID {
+		if existing := h.Store.Find(newID); existing != nil {
+			http.Error(w, "Ya existe un repositorio con ese ID: "+newID, http.StatusConflict)
+			return
+		}
+	}
+
+	// Apply all updates
 	h.Store.Update(input.ID, func(r *storage.Repository) {
+		if input.Owner != nil {
+			r.Owner = *input.Owner
+		}
+		if input.Name != nil {
+			r.Name = *input.Name
+		}
 		if input.AppName != nil {
 			r.AppName = *input.AppName
 		}
@@ -193,12 +225,20 @@ func (h *Handler) handleEditRepo(w http.ResponseWriter, r *http.Request) {
 		if input.PlatArch != nil {
 			r.PlatformArch = *input.PlatArch
 		}
+		// Update ID if owner/name changed
+		if newID != input.ID {
+			r.ID = newID
+		}
 	})
 
-	h.Broker.EmitLog("_system", fmt.Sprintf("Repositorio actualizado: %s", input.ID))
+	h.Store.Save()
+	h.Broker.EmitLog("_system", fmt.Sprintf("Repositorio actualizado: %s → %s", input.ID, newID))
 
-	// Return updated repo
-	updated := h.Store.Find(input.ID)
+	// Return updated repo (look up by new ID)
+	updated := h.Store.Find(newID)
+	if updated == nil {
+		updated = h.Store.Find(input.ID)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(updated)
 }
@@ -446,6 +486,7 @@ func (h *Handler) handleRestartRepo(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUpdateRepo initiates the update pipeline.
+// If the repo is ap-manager itself, it uses the self-update (script) path.
 func (h *Handler) handleUpdateRepo(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -459,11 +500,28 @@ func (h *Handler) handleUpdateRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Detect self-update (ap-manager updating itself)
+	if h.isSelfUpdate(repo) {
+		h.selfUpdate(w, r, repo)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"status": "updating"})
 
 	go h.Updater.RunUpdate(repo.ID)
+}
+
+// isSelfUpdate checks if the repo's app is ap-manager itself.
+func (h *Handler) isSelfUpdate(repo *storage.Repository) bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	exeName := filepath.Base(exe)
+	// Match by app name or known binary name
+	return repo.AppName == exeName || repo.AppName == "ap-manager"
 }
 
 // handleInstallRepo performs a first-time install for a repo's binary.
@@ -589,8 +647,26 @@ func (h *Handler) handlePlatform(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSelfInfo returns ap-manager's own version and platform info.
+func (h *Handler) handleSelfInfo(w http.ResponseWriter, r *http.Request) {
+	exe, err := os.Executable()
+	exePath := ""
+	if err == nil {
+		exePath = exe
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"version": h.Version,
+		"os":      h.OS,
+		"arch":    h.Arch,
+		"pid":     os.Getpid(),
+		"binary":  exePath,
+		"repo":    "mfloresz/app-manager",
+	})
+}
+
 // NewHandler creates a Handler with runtime detection.
-func NewHandler(store *storage.Store, broker *events.Broker, pipeline *updater.Pipeline, procMan *process.Manager) *Handler {
+func NewHandler(store *storage.Store, broker *events.Broker, pipeline *updater.Pipeline, procMan *process.Manager, version string) *Handler {
 	return &Handler{
 		Store:   store,
 		Broker:  broker,
@@ -598,5 +674,6 @@ func NewHandler(store *storage.Store, broker *events.Broker, pipeline *updater.P
 		ProcMan: procMan,
 		OS:      runtime.GOOS,
 		Arch:    runtime.GOARCH,
+		Version: version,
 	}
 }

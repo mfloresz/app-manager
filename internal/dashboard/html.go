@@ -431,12 +431,23 @@ body {
   </div>
   <div class="header-right">
     <span class="header-meta"><span id="plat">--</span></span>
+    <button class="btn" id="self-update-btn" onclick="checkSelfUpdate()" title="Versión actual: cargando...">
+      <span class="btn-icon-sync"><svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 7a6 6 0 0111.3-3M13 7a6 6 0 01-11.3 3"/><path d="M1 1v4h4M13 13V9H9"/></svg></span>
+      <span id="self-version">--</span>
+    </button>
     <button class="btn btn--primary" onclick="showAddModal()">
       <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 2v10M2 7h10"/></svg>
       Añadir
     </button>
   </div>
 </header>
+<style>
+.btn-icon-sync { display:inline-flex; vertical-align:middle; }
+.btn-icon-sync.spinning svg { animation: spin 1s linear infinite; }
+@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+#self-update-btn.has-update { background:var(--warning-subtle); color:var(--warning); border-color:rgba(217,160,91,0.3); }
+#self-update-btn.has-update:hover { background:var(--warning-subtle); border-color:var(--warning); }
+</style>
 
 <!-- ══════ STATS BAR ══════ -->
 <div class="stats-bar" id="stats-bar">
@@ -566,6 +577,16 @@ body {
         <label class="form-label" for="edit-id">ID del repositorio</label>
         <input class="form-input" id="edit-id" type="text" readonly style="color:var(--text-muted);">
       </div>
+      <div style="display:flex;gap:8px;">
+        <div class="form-group" style="flex:1">
+          <label class="form-label" for="edit-owner">Owner</label>
+          <input class="form-input" id="edit-owner" type="text" placeholder="ej. mfloresz" autocomplete="off">
+        </div>
+        <div class="form-group" style="flex:1">
+          <label class="form-label" for="edit-repo">Repositorio</label>
+          <input class="form-input" id="edit-repo" type="text" placeholder="ej. yara" autocomplete="off">
+        </div>
+      </div>
       <div class="form-group">
         <label class="form-label" for="edit-app">Nombre del binario</label>
         <input class="form-input" id="edit-app" type="text" placeholder="ej. translator-server" autocomplete="off">
@@ -630,6 +651,15 @@ fetch('/api/platform').then(function(r){return r.json()}).then(function(d){
 }).catch(function(){});
 
 loadRepos();
+
+// Load self info (version, platform)
+fetch('/api/self').then(function(r){return r.json()}).then(function(d){
+  var verEl = document.getElementById('self-version');
+  if (verEl) {
+    verEl.textContent = d.version === 'dev' ? 'dev' : d.version;
+    document.getElementById('self-update-btn').title = 'Versión: ' + d.version + ' | Click para buscar actualizaciones';
+  }
+}).catch(function(){});
 
 document.getElementById('in-app').addEventListener('input', updateAssetPreview);
 document.getElementById('in-plat-arch').addEventListener('change', updateAssetPreview);
@@ -1147,6 +1177,41 @@ function checkRepo(id) {
 }
 
 function updateRepo(id) {
+  // Detect self-update (ap-manager card)
+  var repo = repos.find(function(r){ return r.id === id; });
+  var isSelf = repo && (repo.app_name === 'ap-manager' || repo.id === 'mfloresz/app-manager');
+
+  if (isSelf) {
+    repoStatus[id] = 'checking';
+    updateStatusBadge(id, 'checking');
+    updateButtons(id, 'checking');
+    fetch('/api/self/update')
+      .then(function(r){return r.json()})
+      .then(function(data) {
+        if (data.status === 'self_updating') {
+          showToast('🔄 Actualizando AP Manager a ' + data.new_version, 'success');
+          // Show message about connection drop
+          setTimeout(function() {
+            showToast('⚠️ Refresca la página en unos segundos...', 'success');
+          }, 3000);
+          repoStatus[id] = 'completed';
+          updateStatusBadge(id, 'completed');
+          updateButtons(id, 'completed');
+          // Auto-refresh after delay
+          setTimeout(function() {
+            location.reload();
+          }, 8000);
+        }
+      })
+      .catch(function(){
+        repoStatus[id] = 'idle';
+        updateStatusBadge(id, 'idle');
+        updateButtons(id, 'idle');
+        showToast('Error al iniciar auto-actualización', 'error');
+      });
+    return;
+  }
+
   repoStatus[id] = 'checking';
   updateStatusBadge(id, 'checking');
   updateButtons(id, 'checking');
@@ -1311,6 +1376,8 @@ function editRepo(id) {
   if (!repo) { showToast('Repositorio no encontrado', 'error'); return; }
 
   document.getElementById('edit-id').value = id;
+  document.getElementById('edit-owner').value = repo.owner || '';
+  document.getElementById('edit-repo').value = repo.name || '';
   document.getElementById('edit-app').value = repo.app_name || '';
   document.getElementById('edit-asset').value = repo.asset_name || '';
   document.getElementById('edit-args').value = repo.custom_command || '';
@@ -1336,6 +1403,12 @@ function saveEditRepo() {
 
   var errEl = document.getElementById('edit-modal-error');
   var body = { id: id };
+
+  var owner = document.getElementById('edit-owner').value.trim();
+  if (owner) body.owner = owner;
+
+  var name = document.getElementById('edit-repo').value.trim();
+  if (name) body.name = name;
 
   var appName = document.getElementById('edit-app').value.trim();
   if (appName) body.app_name = appName;
@@ -1466,6 +1539,56 @@ function showToast(msg, type) {
 
 function clearLog() {
   globalLog.innerHTML = '<div class="log-line log-line--system">Registro limpiado. Esperando eventos...</div>';
+}
+
+// SELF-UPDATE
+function checkSelfUpdate() {
+  var btn = document.getElementById('self-update-btn');
+  var verEl = document.getElementById('self-version');
+  var spin = btn.querySelector('.btn-icon-sync');
+  if (spin) spin.classList.add('spinning');
+
+  // First check if there's an update
+  fetch('/api/self/check')
+    .then(function(r){return r.json()})
+    .then(function(data) {
+      if (spin) spin.classList.remove('spinning');
+
+      if (data.error) {
+        showToast('Error al verificar: ' + data.error, 'error');
+        return;
+      }
+
+      if (data.has_update) {
+        if (confirm('Nueva versión disponible: ' + data.current + ' \u2192 ' + data.latest + '\n\n¿Deseas actualizar AP Manager?')) {
+          // Proceed with self-update
+          btn.classList.remove('has-update');
+          verEl.textContent = '...';
+          showToast('Iniciando actualización a ' + data.latest + '...', 'success');
+
+          fetch('/api/self/update')
+            .then(function(r){return r.json()})
+            .then(function(res) {
+              if (res.status === 'self_updating') {
+                showToast('Actualización lanzada. Refresca en unos segundos.', 'success');
+                setTimeout(function() { location.reload(); }, 8000);
+              }
+            })
+            .catch(function() {
+              showToast('Error al iniciar actualización', 'error');
+              verEl.textContent = data.current;
+            });
+        } else {
+          showToast('Actualización cancelada', 'success');
+        }
+      } else {
+        showToast('AP Manager está actualizado (' + data.current + ')', 'success');
+      }
+    })
+    .catch(function() {
+      if (spin) spin.classList.remove('spinning');
+      showToast('Error al conectar con GitHub', 'error');
+    });
 }
 </script>
 </body>
