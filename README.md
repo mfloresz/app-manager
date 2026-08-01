@@ -18,53 +18,60 @@ AP Manager exists to provide a centralized web dashboard for tracking and updati
 
 ```text
 app-manager/
-├── cmd/ap-manager/
-│   └── main.go                  # Application entry point
+├── install.sh                   # One-command installation script (Linux, macOS, Android/Termux)
+├── Makefile                     # Build automation
+├── README.md
+├── ap-manager                   # (build artifact — gitignored)
+├── bin/                         # Compiled binary output directory
+├── cmd/
+│   └── ap-manager/
+│       ├── main.go              # Application entry point
+│       └── main_test.go         # CLI tests (version, help)
+├── go.mod                       # Go module definition (go 1.26.4)
+├── go.sum                       # Go module checksums
 ├── internal/
 │   ├── api/
-│   │   └── handlers.go          # REST API HTTP handlers
+│   │   ├── handlers.go          # REST API HTTP handlers
+│   │   ├── selfupdate.go        # Self-update logic and binary replacement
+│   │   └── selfupdate_test.go   # Self-update tests
 │   ├── dashboard/
 │   │   └── html.go              # Embedded SPA (web dashboard)
 │   ├── events/
 │   │   ├── sse.go               # SSE (Server-Sent Events) broker
 │   │   └── types.go             # Structured event types
 │   ├── github/
-│   │   └── client.go            # GitHub Releases API client
+│   │   ├── client.go            # GitHub Releases API client
+│   │   └── client_test.go       # GitHub client tests
 │   ├── process/
 │   │   ├── manager.go           # Platform-abstracted process manager
-│   │   ├── process_linux.go     # Linux process handling (PID files)
+│   │   ├── manager_test.go      # Process manager tests
+│   │   ├── pid_identity_linux_test.go  # Linux PID identity tests
 │   │   ├── process_darwin.go    # macOS process handling
+│   │   ├── process_linux.go     # Linux process handling (PID files)
 │   │   ├── process_termux.go    # Android/Termux process handling
-│   │   └── process_windows.go   # Windows process handling
+│   │   ├── process_windows.go   # Windows process handling
+│   │   ├── resolver_test.go     # Process resolver tests
+│   │   └── splitargs_test.go    # Argument splitting tests
 │   ├── storage/
-│   │   └── state.go             # Persistent state (repos.json)
+│   │   ├── state.go             # Persistent state (repos.json)
+│   │   └── state_test.go        # Storage tests
 │   └── updater/
-│       └── updater.go           # Update pipeline orchestration
-├── .github/
-│   └── workflows/
-│       └── build.yml            # GitHub Actions CI/CD (build + release)
-├── bin/                         # Compiled binary output directory
-├── cmd/                         # Command entry points
-├── home/                        # Project notes and changelog
-├── internal/                    # Application packages
-├── .gitignore
-├── AGENTS.md                    # Agent instructions (release workflow)
-├── Makefile                     # Build automation
-├── ap-manager                   # (build artifact — gitignored)
-├── go.mod                       # Go module definition (go 1.26.4)
-├── go.sum                       # Go module checksums
+│       ├── updater.go           # Update pipeline orchestration
+│       ├── updater_test.go      # Updater tests
+│       └── verify_platform_test.go  # Platform verification tests
 ├── repos.json                   # Repository configuration (runtime state)
 ├── test_updater.sh              # Integration test script with mock API
-├── updater.go                   # (build artifact — gitignored)
-└── README.md
+├── updater                      # (build artifact — gitignored)
+└── .gitignore
 ```
 
 ## Key Areas
 
 | Area | Purpose |
 | ---- | ------- |
-| `cmd/ap-manager/` | Application entry point (`main.go`) |
-| `internal/api/` | REST API handlers for repo CRUD, version checks, and updates |
+| `install.sh` | One-command installation script for Linux, macOS, and Android/Termux |
+| `cmd/ap-manager/` | Application entry point (`main.go`) and CLI tests |
+| `internal/api/` | REST API handlers, self-update logic, and tests |
 | `internal/dashboard/` | Embedded single-page application (HTML/JS/CSS served inline) |
 | `internal/events/` | SSE broker and structured event types for real-time updates |
 | `internal/github/` | GitHub Releases API client for fetching latest versions and assets |
@@ -84,6 +91,29 @@ app-manager/
 - **curl** or **wget** (for downloading release assets)
 
 ### Installation
+
+#### Quick Install (Recommended)
+
+Install the latest release in one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mfloresz/app-manager/main/install.sh | sh
+```
+
+Or download and run locally:
+
+```bash
+chmod +x install.sh && ./install.sh
+```
+
+The script automatically:
+- Detects your platform (Linux amd64/arm64/armv7, macOS, Android/Termux)
+- Downloads the latest release from GitHub
+- Installs the binary to `~/.local/bin`, `~/bin`, or `/usr/local/bin`
+- Adds the install directory to `PATH` if needed
+- Optionally sets up a systemd service (Linux) or Termux boot script (Android)
+
+#### Build from Source
 
 1. **Clone the repository**
 
@@ -244,7 +274,7 @@ This script:
 
 ## Documentation
 
-- **Changelog**: `home/misael/Dev/app-manager/CHANGELOG.md`
+- **Changelog**: `CHANGELOG.md`
 - **Agent Instructions**: `AGENTS.md` (release workflow and conventions)
 - **CI/CD Configuration**: `.github/workflows/build.yml`
 
