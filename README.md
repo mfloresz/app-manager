@@ -52,8 +52,7 @@ ap-manager/
 ├── go.mod                       # Go module configuration
 ├── Makefile                     # Build automation
 ├── repos.json                   # Repository configuration
-├── test_updater.sh              # Test script
-└── updater.go                   # Main application (updater)
+└── test_updater.sh              # Test script
 ```
 
 ## Quick Start

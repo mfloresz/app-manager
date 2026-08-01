@@ -172,14 +172,18 @@ main() {
     mv "$TMP_FILE" "${DEST}/ap-manager"
     ok "Instalado en: ${DEST}/ap-manager"
 
-    # Verify — use --help (doesn't start the server)
+    # Verify — use --version (doesn't start the server)
     echo ""
     info "Verificando instalación..."
-    if "${DEST}/ap-manager" --help 2>/dev/null >/dev/null; then
+    # Bound execution when timeout is available; otherwise --version
+    # terminates on its own since it does not start the server.
+    VERIFY_CMD="timeout 10"
+    command -v timeout >/dev/null 2>&1 || VERIFY_CMD=""
+    if $VERIFY_CMD "${DEST}/ap-manager" --version >/dev/null 2>&1; then
         ok "AP Manager instalado correctamente"
     else
         warn "El binario se instaló pero no se pudo verificar su ejecución."
-        warn "Prueba ejecutar: ${DEST}/ap-manager --help"
+        warn "Prueba ejecutar: ${DEST}/ap-manager --version"
     fi
 
     # Add to PATH if needed

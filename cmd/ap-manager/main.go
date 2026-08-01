@@ -32,6 +32,26 @@ import (
 // Version se inyecta en build via ldflags: -X main.Version=$(VERSION)
 var Version = "dev"
 
+// handleCLI handles the non-server CLI flags (--version, --help) and reports
+// whether the process should exit instead of starting the HTTP server.
+func handleCLI() bool {
+	switch {
+	case len(os.Args) > 1 && os.Args[1] == "--version":
+		fmt.Println(Version)
+		return true
+	case len(os.Args) > 1 && os.Args[1] == "--help":
+		fmt.Println("Uso: ap-manager [--version|--help]")
+		fmt.Println()
+		fmt.Println("Sin argumentos inicia el dashboard (puerto PORT, por defecto :8080).")
+		fmt.Println()
+		fmt.Println("Opciones:")
+		fmt.Println("  --version   Muestra la versión instalada y sale")
+		fmt.Println("  --help      Muestra esta ayuda y sale")
+		return true
+	}
+	return false
+}
+
 func getEnvDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -40,6 +60,11 @@ func getEnvDefault(key, fallback string) string {
 }
 
 func main() {
+	// CLI flags (--version/--help) exit before any state or server setup.
+	if handleCLI() {
+		os.Exit(0)
+	}
+
 	reposFile := getEnvDefault("REPOS_FILE", "repos.json")
 	port := getEnvDefault("PORT", ":8080")
 

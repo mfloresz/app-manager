@@ -278,7 +278,7 @@ func (h *Handler) handleRepoStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	running := h.ProcMan.IsRunning(repo.AppName)
+	running := h.ProcMan.IsRunning(repo.ID)
 	status := "stopped"
 	if running {
 		status = "running"
@@ -313,7 +313,7 @@ func (h *Handler) handleStopRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.Broker.EmitLog(repo.ID, "🛑 Deteniendo "+repo.AppName+" ...")
-	stopped, err := h.ProcMan.Stop(repo.AppName)
+	stopped, err := h.ProcMan.Stop(repo.ID)
 	if err != nil {
 		h.Broker.EmitError(repo.ID, "Error al detener: "+err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -354,38 +354,26 @@ func (h *Handler) handleStartRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.ProcMan.IsRunning(repo.AppName) {
+	if h.ProcMan.IsRunning(repo.ID) {
 		h.Broker.EmitLog(repo.ID, "ℹ️ "+repo.AppName+" ya está en ejecución")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "already_running"})
 		return
 	}
 
-	appPath := ""
-	// First check custom InstallPath
-	if repo.InstallPath != "" {
-		p := filepath.Join(repo.InstallPath, repo.AppName)
-		if fi, statErr := os.Stat(p); statErr == nil && fi.Mode()&0111 != 0 {
-			appPath = p
-		}
-	}
-	// Fall back to standard search
-	if appPath == "" {
-		var findErr error
-		appPath, findErr = process.FindAppBinary(repo.AppName)
-		if findErr != nil {
-			h.Broker.EmitError(repo.ID, "Binario no encontrado: "+findErr.Error())
-			h.Store.Update(repo.ID, func(r *storage.Repository) {
-				r.Installed = false
-			})
-			http.Error(w, "Binario no encontrado: "+findErr.Error(), http.StatusNotFound)
-			return
-		}
+	appPath, findErr := process.ResolveAppBinary(repo.AppName, repo.InstallPath)
+	if findErr != nil {
+		h.Broker.EmitError(repo.ID, "Binario no encontrado: "+findErr.Error())
+		h.Store.Update(repo.ID, func(r *storage.Repository) {
+			r.Installed = false
+		})
+		http.Error(w, "Binario no encontrado: "+findErr.Error(), http.StatusNotFound)
+		return
 	}
 
 	args := splitArgs(repo.CustomCommand)
 	h.Broker.EmitLog(repo.ID, "▶️ Iniciando "+repo.AppName+" "+strings.Join(args, " ")+" ...")
-	pid, err := h.ProcMan.StartWithCapture(repo.AppName, appPath, h.Broker, repo.ID, args...)
+	pid, err := h.ProcMan.StartWithCapture(repo.AppName, repo.ID, appPath, h.Broker, args...)
 	if err != nil {
 		h.Broker.EmitError(repo.ID, "Error al iniciar: "+err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -400,7 +388,7 @@ func (h *Handler) handleStartRepo(w http.ResponseWriter, r *http.Request) {
 
 	// Wait a moment and check
 	time.Sleep(2 * time.Second)
-	if h.ProcMan.IsRunning(repo.AppName) {
+	if h.ProcMan.IsRunning(repo.ID) {
 		h.Broker.EmitLog(repo.ID, "✅ "+repo.AppName+" iniciado (PID "+fmt.Sprint(pid)+")")
 	} else {
 		h.Broker.EmitLog(repo.ID, "⚠️ "+repo.AppName+" no se inició correctamente")
@@ -434,33 +422,21 @@ func (h *Handler) handleRestartRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.Broker.EmitLog(repo.ID, "🔄 Reiniciando "+repo.AppName+" ...")
-	h.ProcMan.Stop(repo.AppName)
+	h.ProcMan.Stop(repo.ID)
 	time.Sleep(1 * time.Second)
 
-	appPath := ""
-	// First check custom InstallPath
-	if repo.InstallPath != "" {
-		p := filepath.Join(repo.InstallPath, repo.AppName)
-		if fi, statErr := os.Stat(p); statErr == nil && fi.Mode()&0111 != 0 {
-			appPath = p
-		}
-	}
-	// Fall back to standard search
-	if appPath == "" {
-		var findErr error
-		appPath, findErr = process.FindAppBinary(repo.AppName)
-		if findErr != nil {
-			h.Broker.EmitError(repo.ID, "Binario no encontrado: "+findErr.Error())
-			h.Store.Update(repo.ID, func(r *storage.Repository) {
-				r.Installed = false
-			})
-			http.Error(w, "Binario no encontrado: "+findErr.Error(), http.StatusNotFound)
-			return
-		}
+	appPath, findErr := process.ResolveAppBinary(repo.AppName, repo.InstallPath)
+	if findErr != nil {
+		h.Broker.EmitError(repo.ID, "Binario no encontrado: "+findErr.Error())
+		h.Store.Update(repo.ID, func(r *storage.Repository) {
+			r.Installed = false
+		})
+		http.Error(w, "Binario no encontrado: "+findErr.Error(), http.StatusNotFound)
+		return
 	}
 
 	args := splitArgs(repo.CustomCommand)
-	pid, err := h.ProcMan.StartWithCapture(repo.AppName, appPath, h.Broker, repo.ID, args...)
+	pid, err := h.ProcMan.StartWithCapture(repo.AppName, repo.ID, appPath, h.Broker, args...)
 	if err != nil {
 		h.Broker.EmitError(repo.ID, "Error al reiniciar: "+err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -473,7 +449,7 @@ func (h *Handler) handleRestartRepo(w http.ResponseWriter, r *http.Request) {
 	})
 
 	time.Sleep(2 * time.Second)
-	if h.ProcMan.IsRunning(repo.AppName) {
+	if h.ProcMan.IsRunning(repo.ID) {
 		h.Broker.EmitLog(repo.ID, "✅ "+repo.AppName+" reiniciado (PID "+fmt.Sprint(pid)+")")
 	} else {
 		h.Broker.EmitLog(repo.ID, "⚠️ "+repo.AppName+" no se inició después del reinicio")
@@ -550,8 +526,8 @@ func (h *Handler) handleInstallRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if repo.Installed {
-		// Check if binary actually exists
-		if process.BinaryExists(repo.AppName) {
+		// Check if the binary actually exists at the configured location.
+		if _, err := process.ResolveAppBinary(repo.AppName, repo.InstallPath); err == nil {
 			h.Broker.EmitLog(repo.ID, "ℹ️ "+repo.AppName+" ya está instalado")
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{"status": "already_installed"})
@@ -665,9 +641,11 @@ func (h *Handler) handleSelfInfo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// NewHandler creates a Handler with runtime detection.
+// NewHandler creates a Handler with runtime detection. The effective
+// platform comes from the pipeline when set (e.g. "android" for Termux),
+// falling back to the runtime values.
 func NewHandler(store *storage.Store, broker *events.Broker, pipeline *updater.Pipeline, procMan *process.Manager, version string) *Handler {
-	return &Handler{
+	h := &Handler{
 		Store:   store,
 		Broker:  broker,
 		Updater: pipeline,
@@ -676,4 +654,13 @@ func NewHandler(store *storage.Store, broker *events.Broker, pipeline *updater.P
 		Arch:    runtime.GOARCH,
 		Version: version,
 	}
+	if pipeline != nil {
+		if pipeline.OS != "" {
+			h.OS = pipeline.OS
+		}
+		if pipeline.Arch != "" {
+			h.Arch = pipeline.Arch
+		}
+	}
+	return h
 }

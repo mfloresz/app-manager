@@ -1201,6 +1201,17 @@ function updateRepo(id) {
           setTimeout(function() {
             location.reload();
           }, 8000);
+        } else if (data.status === 'no_update') {
+          repoStatus[id] = 'idle';
+          updateStatusBadge(id, 'idle');
+          updateButtons(id, 'idle');
+          var msg = 'AP Manager ya está en la última versión';
+          if (data.reason === 'latest_older') {
+            msg = 'La versión instalada es más reciente que la última publicada';
+          } else if (data.reason === 'unknown_versions') {
+            msg = 'No se pudo comparar la versión actual';
+          }
+          showToast(msg, 'success');
         }
       })
       .catch(function(){

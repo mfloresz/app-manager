@@ -20,27 +20,51 @@ type Release struct {
 
 // Asset represents a release asset.
 type Asset struct {
-	Name          string `json:"name"`
-	DownloadURL   string `json:"browser_download_url"`
-	ContentType   string `json:"content_type"`
-	Size          int    `json:"size"`
+	Name        string `json:"name"`
+	DownloadURL string `json:"browser_download_url"`
+	ContentType string `json:"content_type"`
+	Size        int    `json:"size"`
 }
+
+// defaultAPIBase is the GitHub REST API base used unless GITHUB_API_PREFIX
+// overrides it (e.g. to point the integration test harness at a local mock).
+const defaultAPIBase = "https://api.github.com"
 
 // Client for GitHub API.
 type Client struct {
 	HTTPClient *http.Client
+	// BaseURL is the API base. Empty means the real GitHub API.
+	BaseURL string
 }
 
-// NewClient creates a new GitHub client.
+// NewClient creates a new GitHub client. The API base defaults to the real
+// GitHub REST API and can be overridden with GITHUB_API_PREFIX (e.g. to point
+// the integration harness at a local mock); an empty/whitespace override
+// falls back to the default.
 func NewClient() *Client {
 	return &Client{
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		BaseURL:    os.Getenv("GITHUB_API_PREFIX"),
 	}
 }
 
+// apiBase returns the effective API base with any trailing slash removed, so
+// callers can join paths without producing double slashes.
+func (c *Client) apiBase() string {
+	base := strings.TrimSpace(c.BaseURL)
+	if base == "" {
+		base = defaultAPIBase
+	}
+	return strings.TrimRight(base, "/")
+}
+
+// downloadTimeout bounds the whole asset download (connection, redirects and
+// body). It is a package-level variable so tests can shorten it.
+var downloadTimeout = 10 * time.Minute
+
 // LatestRelease fetches the latest release for a repo.
 func (c *Client) LatestRelease(owner, name string) (*Release, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, name)
+	apiURL := c.apiBase() + "/repos/" + owner + "/" + name + "/releases/latest"
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
@@ -96,10 +120,10 @@ func FindAsset(assets []Asset, baseName string) *Asset {
 
 // DownloadProgressReader wraps an io.Reader and calls a callback with bytes read.
 type DownloadProgressReader struct {
-	Reader   io.Reader
-	Total    int64
+	Reader    io.Reader
+	Total     int64
 	ReadSoFar int64
-	Callback func(bytesRead, total int64)
+	Callback  func(bytesRead, total int64)
 }
 
 func (r *DownloadProgressReader) Read(p []byte) (int, error) {
@@ -112,9 +136,12 @@ func (r *DownloadProgressReader) Read(p []byte) (int, error) {
 }
 
 // DownloadAsset downloads an asset to a local file with progress reporting.
-// The progressFn receives (bytesDownloaded, totalBytes).
+// The progressFn receives (bytesDownloaded, totalBytes). The download is
+// bounded by downloadTimeout; when the response announces a Content-Length,
+// the number of bytes written must match it exactly. Any failure removes the
+// destination file.
 func DownloadAsset(url, destPath string, progressFn func(downloaded, total int64)) error {
-	client := &http.Client{Timeout: 0} // no fixed timeout — rely on progress
+	client := &http.Client{Timeout: downloadTimeout}
 
 	resp, err := client.Get(url)
 	if err != nil {
@@ -130,7 +157,6 @@ func DownloadAsset(url, destPath string, progressFn func(downloaded, total int64
 	if err != nil {
 		return fmt.Errorf("crear archivo: %w", err)
 	}
-	defer out.Close()
 
 	totalSize := resp.ContentLength
 
@@ -142,8 +168,22 @@ func DownloadAsset(url, destPath string, progressFn func(downloaded, total int64
 
 	written, err := io.Copy(out, progressReader)
 	if err != nil {
+		out.Close()
 		os.Remove(destPath)
 		return fmt.Errorf("escritura: %w", err)
+	}
+
+	// Verify the announced length when known (chunked/unknown-length bodies
+	// are skipped); a mismatch means the transfer was truncated.
+	if resp.ContentLength >= 0 && written != resp.ContentLength {
+		out.Close()
+		os.Remove(destPath)
+		return fmt.Errorf("descarga incompleta: se esperaban %d bytes, se escribieron %d", resp.ContentLength, written)
+	}
+
+	if err := out.Close(); err != nil {
+		os.Remove(destPath)
+		return fmt.Errorf("cerrar archivo: %w", err)
 	}
 
 	fmt.Printf("Descargados %d bytes a %s\n", written, destPath)
