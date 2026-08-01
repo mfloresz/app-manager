@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 
 	"ap-manager/internal/api"
 	"ap-manager/internal/dashboard"
@@ -31,6 +32,26 @@ import (
 // Version se inyecta en build via ldflags: -X main.Version=$(VERSION)
 var Version = "dev"
 
+// handleCLI handles the non-server CLI flags (--version, --help) and reports
+// whether the process should exit instead of starting the HTTP server.
+func handleCLI() bool {
+	switch {
+	case len(os.Args) > 1 && os.Args[1] == "--version":
+		fmt.Println(Version)
+		return true
+	case len(os.Args) > 1 && os.Args[1] == "--help":
+		fmt.Println("Uso: ap-manager [--version|--help]")
+		fmt.Println()
+		fmt.Println("Sin argumentos inicia el dashboard (puerto PORT, por defecto :8080).")
+		fmt.Println()
+		fmt.Println("Opciones:")
+		fmt.Println("  --version   Muestra la versión instalada y sale")
+		fmt.Println("  --help      Muestra esta ayuda y sale")
+		return true
+	}
+	return false
+}
+
 func getEnvDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -39,6 +60,11 @@ func getEnvDefault(key, fallback string) string {
 }
 
 func main() {
+	// CLI flags (--version/--help) exit before any state or server setup.
+	if handleCLI() {
+		os.Exit(0)
+	}
+
 	reposFile := getEnvDefault("REPOS_FILE", "repos.json")
 	port := getEnvDefault("PORT", ":8080")
 
@@ -72,6 +98,7 @@ func main() {
 	termuxPrefix := os.Getenv("PREFIX")
 	if termuxPrefix != "" {
 		fmt.Printf("Termux detectado: %s\n", termuxPrefix)
+		platOS = "android"
 	}
 
 	pipeline := &updater.Pipeline{
@@ -83,10 +110,39 @@ func main() {
 		Arch:    platArch,
 	}
 
+	// ── Add self repo if not present ──
+	selfID := strings.ToLower("mfloresz" + "/" + "app-manager")
+	if store.Find(selfID) == nil {
+		selfRepo := storage.Repository{
+			ID:             selfID,
+			Owner:          "mfloresz",
+			Name:           "app-manager",
+			AppName:        "ap-manager",
+			CurrentVersion: Version,
+			PlatformOS:     platOS,
+			PlatformArch:   platArch,
+			Installed:      true,
+			Status:         storage.StatusIdle,
+		}
+		if err := store.Add(selfRepo); err != nil {
+			fmt.Fprintf(os.Stderr, "Error al añadir auto-repo: %v\n", err)
+		} else {
+			fmt.Printf("Auto-repo añadido: %s (%s)\n", selfID, Version)
+		}
+	} else {
+		// Sync current version on every startup
+		store.Update(selfID, func(r *storage.Repository) {
+			r.CurrentVersion = Version
+			r.PlatformOS = platOS
+			r.PlatformArch = platArch
+		})
+	}
+	store.Save()
+
 	// ── Set up HTTP routes ──
 	mux := http.NewServeMux()
 
-	handler := api.NewHandler(store, broker, pipeline, procMan)
+	handler := api.NewHandler(store, broker, pipeline, procMan, Version)
 	handler.RegisterRoutes(mux)
 
 	// Dashboard SPA (catch-all)

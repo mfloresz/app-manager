@@ -32,6 +32,12 @@ jobs:
             suffix: linux-arm64
 
           - os: ubuntu-latest
+            goos: linux
+            goarch: arm
+            goarm: 7
+            suffix: linux-armv7
+
+          - os: ubuntu-latest
             goos: darwin
             goarch: amd64
             suffix: darwin-amd64

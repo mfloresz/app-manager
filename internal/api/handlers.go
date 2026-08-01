@@ -25,6 +25,7 @@ type Handler struct {
 	ProcMan *process.Manager
 	OS      string
 	Arch    string
+	Version string
 }
 
 // splitArgs parses a command string into arguments.
@@ -48,6 +49,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/events", h.handleSSE)
 	mux.HandleFunc("/api/events/global", h.handleGlobalSSE)
 	mux.HandleFunc("/api/platform", h.handlePlatform)
+	mux.HandleFunc("/api/self", h.handleSelfInfo)
+	mux.HandleFunc("/api/self/check", h.handleSelfCheck)
+	mux.HandleFunc("/api/self/update", h.handleSelfUpdate)
 }
 
 // handleRepos returns the list of repos as JSON.
@@ -86,8 +90,8 @@ func (h *Handler) handleAddRepo(w http.ResponseWriter, r *http.Request) {
 	id := strings.ToLower(input.Owner + "/" + input.Name)
 
 	// Check if already exists
-	for _, repo := range h.Store.List() {
-		if repo.ID == id {
+	for _, r := range h.Store.List() {
+		if r.ID == id {
 			http.Error(w, "El repositorio ya existe: "+id, http.StatusConflict)
 			return
 		}
@@ -152,6 +156,8 @@ func (h *Handler) handleEditRepo(w http.ResponseWriter, r *http.Request) {
 
 	var input struct {
 		ID            string  `json:"id"`
+		Owner         *string `json:"owner,omitempty"`
+		Name          *string `json:"name,omitempty"`
 		AppName       *string `json:"app_name,omitempty"`
 		Asset         *string `json:"asset,omitempty"`
 		CustomCommand *string `json:"custom_command,omitempty"`
@@ -168,13 +174,39 @@ func (h *Handler) handleEditRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo := h.Store.Find(input.ID)
-	if repo == nil {
+	// Fetch the old repo to compute new ID if owner/name changes
+	oldRepo := h.Store.Find(input.ID)
+	if oldRepo == nil {
 		http.Error(w, "No encontrado", http.StatusNotFound)
 		return
 	}
 
+	newOwner := oldRepo.Owner
+	newName := oldRepo.Name
+	if input.Owner != nil {
+		newOwner = *input.Owner
+	}
+	if input.Name != nil {
+		newName = *input.Name
+	}
+	newID := strings.ToLower(newOwner + "/" + newName)
+
+	// If ID changed, check there's no conflict
+	if newID != input.ID {
+		if existing := h.Store.Find(newID); existing != nil {
+			http.Error(w, "Ya existe un repositorio con ese ID: "+newID, http.StatusConflict)
+			return
+		}
+	}
+
+	// Apply all updates
 	h.Store.Update(input.ID, func(r *storage.Repository) {
+		if input.Owner != nil {
+			r.Owner = *input.Owner
+		}
+		if input.Name != nil {
+			r.Name = *input.Name
+		}
 		if input.AppName != nil {
 			r.AppName = *input.AppName
 		}
@@ -193,12 +225,20 @@ func (h *Handler) handleEditRepo(w http.ResponseWriter, r *http.Request) {
 		if input.PlatArch != nil {
 			r.PlatformArch = *input.PlatArch
 		}
+		// Update ID if owner/name changed
+		if newID != input.ID {
+			r.ID = newID
+		}
 	})
 
-	h.Broker.EmitLog("_system", fmt.Sprintf("Repositorio actualizado: %s", input.ID))
+	h.Store.Save()
+	h.Broker.EmitLog("_system", fmt.Sprintf("Repositorio actualizado: %s → %s", input.ID, newID))
 
-	// Return updated repo
-	updated := h.Store.Find(input.ID)
+	// Return updated repo (look up by new ID)
+	updated := h.Store.Find(newID)
+	if updated == nil {
+		updated = h.Store.Find(input.ID)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(updated)
 }
@@ -238,7 +278,7 @@ func (h *Handler) handleRepoStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	running := h.ProcMan.IsRunning(repo.AppName)
+	running := h.ProcMan.IsRunning(repo.ID)
 	status := "stopped"
 	if running {
 		status = "running"
@@ -273,7 +313,7 @@ func (h *Handler) handleStopRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.Broker.EmitLog(repo.ID, "🛑 Deteniendo "+repo.AppName+" ...")
-	stopped, err := h.ProcMan.Stop(repo.AppName)
+	stopped, err := h.ProcMan.Stop(repo.ID)
 	if err != nil {
 		h.Broker.EmitError(repo.ID, "Error al detener: "+err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -314,38 +354,26 @@ func (h *Handler) handleStartRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.ProcMan.IsRunning(repo.AppName) {
+	if h.ProcMan.IsRunning(repo.ID) {
 		h.Broker.EmitLog(repo.ID, "ℹ️ "+repo.AppName+" ya está en ejecución")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "already_running"})
 		return
 	}
 
-	appPath := ""
-	// First check custom InstallPath
-	if repo.InstallPath != "" {
-		p := filepath.Join(repo.InstallPath, repo.AppName)
-		if fi, statErr := os.Stat(p); statErr == nil && fi.Mode()&0111 != 0 {
-			appPath = p
-		}
-	}
-	// Fall back to standard search
-	if appPath == "" {
-		var findErr error
-		appPath, findErr = process.FindAppBinary(repo.AppName)
-		if findErr != nil {
-			h.Broker.EmitError(repo.ID, "Binario no encontrado: "+findErr.Error())
-			h.Store.Update(repo.ID, func(r *storage.Repository) {
-				r.Installed = false
-			})
-			http.Error(w, "Binario no encontrado: "+findErr.Error(), http.StatusNotFound)
-			return
-		}
+	appPath, findErr := process.ResolveAppBinary(repo.AppName, repo.InstallPath)
+	if findErr != nil {
+		h.Broker.EmitError(repo.ID, "Binario no encontrado: "+findErr.Error())
+		h.Store.Update(repo.ID, func(r *storage.Repository) {
+			r.Installed = false
+		})
+		http.Error(w, "Binario no encontrado: "+findErr.Error(), http.StatusNotFound)
+		return
 	}
 
 	args := splitArgs(repo.CustomCommand)
 	h.Broker.EmitLog(repo.ID, "▶️ Iniciando "+repo.AppName+" "+strings.Join(args, " ")+" ...")
-	pid, err := h.ProcMan.StartWithCapture(repo.AppName, appPath, h.Broker, repo.ID, args...)
+	pid, err := h.ProcMan.StartWithCapture(repo.AppName, repo.ID, appPath, h.Broker, args...)
 	if err != nil {
 		h.Broker.EmitError(repo.ID, "Error al iniciar: "+err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -360,7 +388,7 @@ func (h *Handler) handleStartRepo(w http.ResponseWriter, r *http.Request) {
 
 	// Wait a moment and check
 	time.Sleep(2 * time.Second)
-	if h.ProcMan.IsRunning(repo.AppName) {
+	if h.ProcMan.IsRunning(repo.ID) {
 		h.Broker.EmitLog(repo.ID, "✅ "+repo.AppName+" iniciado (PID "+fmt.Sprint(pid)+")")
 	} else {
 		h.Broker.EmitLog(repo.ID, "⚠️ "+repo.AppName+" no se inició correctamente")
@@ -394,33 +422,21 @@ func (h *Handler) handleRestartRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.Broker.EmitLog(repo.ID, "🔄 Reiniciando "+repo.AppName+" ...")
-	h.ProcMan.Stop(repo.AppName)
+	h.ProcMan.Stop(repo.ID)
 	time.Sleep(1 * time.Second)
 
-	appPath := ""
-	// First check custom InstallPath
-	if repo.InstallPath != "" {
-		p := filepath.Join(repo.InstallPath, repo.AppName)
-		if fi, statErr := os.Stat(p); statErr == nil && fi.Mode()&0111 != 0 {
-			appPath = p
-		}
-	}
-	// Fall back to standard search
-	if appPath == "" {
-		var findErr error
-		appPath, findErr = process.FindAppBinary(repo.AppName)
-		if findErr != nil {
-			h.Broker.EmitError(repo.ID, "Binario no encontrado: "+findErr.Error())
-			h.Store.Update(repo.ID, func(r *storage.Repository) {
-				r.Installed = false
-			})
-			http.Error(w, "Binario no encontrado: "+findErr.Error(), http.StatusNotFound)
-			return
-		}
+	appPath, findErr := process.ResolveAppBinary(repo.AppName, repo.InstallPath)
+	if findErr != nil {
+		h.Broker.EmitError(repo.ID, "Binario no encontrado: "+findErr.Error())
+		h.Store.Update(repo.ID, func(r *storage.Repository) {
+			r.Installed = false
+		})
+		http.Error(w, "Binario no encontrado: "+findErr.Error(), http.StatusNotFound)
+		return
 	}
 
 	args := splitArgs(repo.CustomCommand)
-	pid, err := h.ProcMan.StartWithCapture(repo.AppName, appPath, h.Broker, repo.ID, args...)
+	pid, err := h.ProcMan.StartWithCapture(repo.AppName, repo.ID, appPath, h.Broker, args...)
 	if err != nil {
 		h.Broker.EmitError(repo.ID, "Error al reiniciar: "+err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -433,7 +449,7 @@ func (h *Handler) handleRestartRepo(w http.ResponseWriter, r *http.Request) {
 	})
 
 	time.Sleep(2 * time.Second)
-	if h.ProcMan.IsRunning(repo.AppName) {
+	if h.ProcMan.IsRunning(repo.ID) {
 		h.Broker.EmitLog(repo.ID, "✅ "+repo.AppName+" reiniciado (PID "+fmt.Sprint(pid)+")")
 	} else {
 		h.Broker.EmitLog(repo.ID, "⚠️ "+repo.AppName+" no se inició después del reinicio")
@@ -446,6 +462,7 @@ func (h *Handler) handleRestartRepo(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUpdateRepo initiates the update pipeline.
+// If the repo is ap-manager itself, it uses the self-update (script) path.
 func (h *Handler) handleUpdateRepo(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -459,11 +476,28 @@ func (h *Handler) handleUpdateRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Detect self-update (ap-manager updating itself)
+	if h.isSelfUpdate(repo) {
+		h.selfUpdate(w, r, repo)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"status": "updating"})
 
 	go h.Updater.RunUpdate(repo.ID)
+}
+
+// isSelfUpdate checks if the repo's app is ap-manager itself.
+func (h *Handler) isSelfUpdate(repo *storage.Repository) bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	exeName := filepath.Base(exe)
+	// Match by app name or known binary name
+	return repo.AppName == exeName || repo.AppName == "ap-manager"
 }
 
 // handleInstallRepo performs a first-time install for a repo's binary.
@@ -492,8 +526,8 @@ func (h *Handler) handleInstallRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if repo.Installed {
-		// Check if binary actually exists
-		if process.BinaryExists(repo.AppName) {
+		// Check if the binary actually exists at the configured location.
+		if _, err := process.ResolveAppBinary(repo.AppName, repo.InstallPath); err == nil {
 			h.Broker.EmitLog(repo.ID, "ℹ️ "+repo.AppName+" ya está instalado")
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{"status": "already_installed"})
@@ -589,14 +623,44 @@ func (h *Handler) handlePlatform(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// NewHandler creates a Handler with runtime detection.
-func NewHandler(store *storage.Store, broker *events.Broker, pipeline *updater.Pipeline, procMan *process.Manager) *Handler {
-	return &Handler{
+// handleSelfInfo returns ap-manager's own version and platform info.
+func (h *Handler) handleSelfInfo(w http.ResponseWriter, r *http.Request) {
+	exe, err := os.Executable()
+	exePath := ""
+	if err == nil {
+		exePath = exe
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"version": h.Version,
+		"os":      h.OS,
+		"arch":    h.Arch,
+		"pid":     os.Getpid(),
+		"binary":  exePath,
+		"repo":    "mfloresz/app-manager",
+	})
+}
+
+// NewHandler creates a Handler with runtime detection. The effective
+// platform comes from the pipeline when set (e.g. "android" for Termux),
+// falling back to the runtime values.
+func NewHandler(store *storage.Store, broker *events.Broker, pipeline *updater.Pipeline, procMan *process.Manager, version string) *Handler {
+	h := &Handler{
 		Store:   store,
 		Broker:  broker,
 		Updater: pipeline,
 		ProcMan: procMan,
 		OS:      runtime.GOOS,
 		Arch:    runtime.GOARCH,
+		Version: version,
 	}
+	if pipeline != nil {
+		if pipeline.OS != "" {
+			h.OS = pipeline.OS
+		}
+		if pipeline.Arch != "" {
+			h.Arch = pipeline.Arch
+		}
+	}
+	return h
 }

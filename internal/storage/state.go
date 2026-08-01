@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -13,15 +14,15 @@ import (
 type Status string
 
 const (
-	StatusIdle       Status = "idle"
-	StatusChecking   Status = "checking"
+	StatusIdle        Status = "idle"
+	StatusChecking    Status = "checking"
 	StatusDownloading Status = "downloading"
-	StatusStopping   Status = "stopping"
-	StatusReplacing  Status = "replacing"
-	StatusStarting   Status = "starting"
-	StatusVerifying  Status = "verifying"
-	StatusCompleted  Status = "completed"
-	StatusFailed     Status = "failed"
+	StatusStopping    Status = "stopping"
+	StatusReplacing   Status = "replacing"
+	StatusStarting    Status = "starting"
+	StatusVerifying   Status = "verifying"
+	StatusCompleted   Status = "completed"
+	StatusFailed      Status = "failed"
 )
 
 // Repository represents a tracked repo/app pair with full state.
@@ -86,15 +87,11 @@ func (s *Store) load() error {
 	return nil
 }
 
-// Save persists the current state to disk.
+// Save persists the current state to disk atomically.
 func (s *Store) Save() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	data, err := json.MarshalIndent(s.Repos, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.filePath, data, 0644)
+	return s.writeLocked()
 }
 
 // Find returns a pointer to a repo by ID (under lock).
@@ -135,11 +132,7 @@ func (s *Store) Add(repo Repository) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Repos = append(s.Repos, repo)
-	data, err := json.MarshalIndent(s.Repos, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.filePath, data, 0644)
+	return s.writeLocked()
 }
 
 // Remove deletes a repo by ID and saves.
@@ -149,14 +142,57 @@ func (s *Store) Remove(id string) error {
 	for i, r := range s.Repos {
 		if r.ID == id {
 			s.Repos = append(s.Repos[:i], s.Repos[i+1:]...)
-			data, err := json.MarshalIndent(s.Repos, "", "  ")
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(s.filePath, data, 0644)
+			return s.writeLocked()
 		}
 	}
 	return fmt.Errorf("repositorio %s no encontrado", id)
+}
+
+// writeLocked marshals and atomically persists s.Repos to disk. The caller
+// must hold s.mu; the JSON format is unchanged (top-level array).
+func (s *Store) writeLocked() error {
+	data, err := json.MarshalIndent(s.Repos, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(s.filePath, data, 0644)
+}
+
+// atomicWriteFile writes data to path atomically: the bytes go to a temp
+// file in the same directory, are flushed and closed, then the temp file is
+// renamed over the target, so an interruption never leaves a partially
+// written target file. The temp file is removed on any failure.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".ap-manager-state-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 // AllRepos returns a direct pointer to the repos slice (caller must hold lock).

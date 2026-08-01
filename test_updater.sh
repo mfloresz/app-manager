@@ -19,8 +19,8 @@ trap cleanup EXIT
 echo "=== Test Environment ==="
 echo "Temp dir: $TESTDIR"
 
-# --- Build updater ---
-go build -o "$TESTDIR/ap-manager" .
+# --- Build updater (shipped entry point) ---
+go build -o "$TESTDIR/ap-manager" ./cmd/ap-manager
 echo "✓ AP Manager built"
 
 # --- Detect platform ---
@@ -217,6 +217,9 @@ echo "✓ Mock GitHub API running (PID $MOCK_PID)"
 # ---------------------------------------------------------------
 export REPOS_FILE="$TESTDIR/repos.json"
 export PORT=":8080"
+# Point the real binary's GitHub client at the local mock API
+# (http://localhost:9999/repos/{owner}/{name}/releases/latest).
+export GITHUB_API_PREFIX="http://localhost:9999"
 
 # Pre-populate repos.json with initial repos pointing to mock
 cat > "$TESTDIR/repos.json" <<JSON

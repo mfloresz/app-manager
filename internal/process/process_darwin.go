@@ -69,3 +69,18 @@ func startProcessWithOutput(path string, stdout, stderr io.Writer, args ...strin
 func lookPath(name string) (string, error) {
 	return exec.LookPath(name)
 }
+
+// captureStartIdentity: no strong process-start token is available via the
+// standard library on Darwin; the PID record keeps only the executable path.
+func captureStartIdentity(pid int) (string, bool) {
+	return "", false
+}
+
+// verifyProcessIdentity: Darwin has no /proc and the standard library offers
+// no way to read another process's executable path or start token, so
+// verification is best-effort and limited to process existence (already
+// checked by the caller). This is documented weaker than the Linux/Android
+// path: PID reuse is not detectable on this platform.
+func verifyProcessIdentity(pid int, rec pidRecord) bool {
+	return processExists(pid)
+}

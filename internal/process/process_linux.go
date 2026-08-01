@@ -85,3 +85,52 @@ func startProcessWithOutput(path string, stdout, stderr io.Writer, args ...strin
 func lookPath(name string) (string, error) {
 	return exec.LookPath(name)
 }
+
+// captureStartIdentity returns the /proc/<pid>/stat starttime (field 22) as
+// the process-start identity token for a freshly started process.
+func captureStartIdentity(pid int) (string, bool) {
+	return procStartTime(pid)
+}
+
+// verifyProcessIdentity compares the live process executable and start token
+// with the recorded identity (strong /proc-based check). The recorded start
+// token is required: a record without it (e.g. path-only JSON) never matches.
+// A zombie, missing or mismatched process never matches either.
+func verifyProcessIdentity(pid int, rec pidRecord) bool {
+	if rec.ExecPath == "" || rec.StartTime == "" {
+		return false
+	}
+	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	if err != nil {
+		return false
+	}
+	if exe != rec.ExecPath {
+		return false
+	}
+	st, ok := procStartTime(pid)
+	if !ok || st != rec.StartTime {
+		return false
+	}
+	return true
+}
+
+// procStartTime reads field 22 (starttime) from /proc/<pid>/stat, parsing the
+// "(comm)" field safely by taking everything after the last ')'. It returns
+// ok=false when the process does not exist or the field is missing.
+func procStartTime(pid int) (string, bool) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return "", false
+	}
+	s := string(data)
+	idx := strings.LastIndexByte(s, ')')
+	if idx < 0 || idx+1 >= len(s) {
+		return "", false
+	}
+	fields := strings.Fields(s[idx+1:])
+	// fields[0] is state (field 3); starttime is field 22 -> index 19.
+	if len(fields) < 20 {
+		return "", false
+	}
+	return fields[19], true
+}
