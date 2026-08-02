@@ -19,6 +19,15 @@ ok()    { printf "\033[32m✓\033[0m %s\n" "$*"; }
 warn()  { printf "\033[33m⚠\033[0m %s\n" "$*"; }
 err()   { printf "\033[31m✗\033[0m %s\n" "$*"; exit 1; }
 ask()   { printf "\033[36m?\033[0m %s " "$*"; }
+read_input() {
+    if [ -t 0 ]; then
+        read -r "$@"
+    elif [ -r /dev/tty ]; then
+        read -r "$@" < /dev/tty
+    else
+        return 1
+    fi
+}
 
 # ═══════════════════════════════════════
 # PLATFORM DETECTION
@@ -37,7 +46,8 @@ detect_platform() {
             armv7l|arm)
                 warn "Arquitectura detectada: $(uname -m)"
                 ask "Instalar para armv7 (1) o arm64 (2)? [1/2]"
-                read -r choice
+                choice=""
+                read_input choice || true
                 case "$choice" in
                     2|arm64) ARCH="arm64"; SUFFIX="android-arm64" ;;
                     *)       ARCH="armv7"; SUFFIX="android-armv7" ;;
@@ -81,7 +91,8 @@ detect_platform() {
             if [ "$(uname -m)" = "armv7l" ]; then
                 warn "Detectado: armv7l (32 bits)"
                 ask "¿Quieres instalar para armv7 (1) o arm64 (2)? [1/2]"
-                read -r choice
+                choice=""
+                read_input choice || true
                 case "$choice" in
                     2|arm64) ARCH="arm64"; SUFFIX="linux-arm64" ;;
                 esac
@@ -179,12 +190,17 @@ main() {
     # terminates on its own since it does not start the server.
     VERIFY_CMD="timeout 10"
     command -v timeout >/dev/null 2>&1 || VERIFY_CMD=""
-    if $VERIFY_CMD "${DEST}/ap-manager" --version >/dev/null 2>&1; then
+    VERIFY_OUTPUT=$(mktemp)
+    if $VERIFY_CMD "${DEST}/ap-manager" --version >"$VERIFY_OUTPUT" 2>&1; then
         ok "AP Manager instalado correctamente"
     else
         warn "El binario se instaló pero no se pudo verificar su ejecución."
+        if [ -s "$VERIFY_OUTPUT" ]; then
+            warn "Salida de verificación: $(tr '\n' ' ' < "$VERIFY_OUTPUT")"
+        fi
         warn "Prueba ejecutar: ${DEST}/ap-manager --version"
     fi
+    rm -f "$VERIFY_OUTPUT"
 
     # Add to PATH if needed
     case ":$PATH:" in
@@ -213,7 +229,8 @@ main() {
     info "¿Quieres configurar inicio automático?"
     if [ "${OS}" = "android" ]; then
         ask "Crear script de inicio en Termux? (${HOME}/.termux/boot/) [s/N]: "
-        read -r resp
+        resp=""
+        read_input resp || true
         case "$resp" in
             s|S|y|Y)
                 BOOT_DIR="${HOME}/.termux/boot"
@@ -231,7 +248,8 @@ EOF
         esac
     elif command -v systemctl >/dev/null 2>&1; then
         ask "Crear servicio systemd? [s/N]: "
-        read -r resp
+        resp=""
+        read_input resp || true
         case "$resp" in
             s|S|y|Y)
                 SERVICE_DIR="${HOME}/.config/systemd/user"
