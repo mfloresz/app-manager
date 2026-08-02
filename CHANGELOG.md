@@ -1,24 +1,32 @@
 # Changelog
 
-## [v0.2.1]
-
-### ⚠️ Breaking changes
+## [v0.3.0]
 
 ### What's new
 
-* Added platform selection UI for asset creation with OS and architecture dropdowns
-* Implemented dynamic architecture detection based on platform (Android vs other OS)
-* Enhanced asset preview display with platform/architecture information
-* Added manual architecture override for Android platforms (armv7/arm64 selection)
+* Added automatic self-update support for downloading and replacing the application binary
+* Added `install.sh` for simplified installation and initial CLI setup
+* Added per-repository application consoles with captured process output
+* Added repository owner and name editing
+* Added automatic repository configuration support
+* Added platform and architecture verification for update assets
+* Added support for process management across Linux, macOS, Windows, and Termux
+
+### Fixes
+
+* Improved process identity and PID validation to avoid managing the wrong process
+* Improved installer input validation and CLI verification
+* Improved updater reliability and platform-specific asset handling
 
 ### Housekeeping
 
-* Removed obsolete uptime counter display (dashboard stat)
-* Removed pending updates and uptime stats from dashboard UI
-* Consolidated and refactored asset preview logic for better maintainability
+* Reorganized updater implementation under `internal/updater`
+* Added extensive automated test coverage for the updater, process manager, storage, API, and GitHub client
+* Updated CI to verify generated binaries using `--version`
+* Removed the obsolete top-level updater implementation
 
 ---
 
 ### References
 
-Previous version: https://github.com/mfloresz/app-manager/releases/tag/v0.2.0
+Previous version: https://github.com/mfloresz/app-manager/releases/tag/v0.2.1
