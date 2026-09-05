@@ -46,6 +46,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/repos/stop", h.handleStopRepo)
 	mux.HandleFunc("/api/repos/start", h.handleStartRepo)
 	mux.HandleFunc("/api/repos/restart", h.handleRestartRepo)
+	mux.HandleFunc("/api/repos/log", h.handleRepoLog)
+	mux.HandleFunc("/api/repos/log/clear", h.handleRepoLogClear)
 	mux.HandleFunc("/api/events", h.handleSSE)
 	mux.HandleFunc("/api/events/global", h.handleGlobalSSE)
 	mux.HandleFunc("/api/platform", h.handlePlatform)
@@ -142,6 +144,7 @@ func (h *Handler) handleRemoveRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.Broker.Clear(input.ID)
 	h.Broker.EmitLog("_system", fmt.Sprintf("Repositorio eliminado: %s", input.ID))
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Eliminado"))
@@ -289,6 +292,42 @@ func (h *Handler) handleRepoStatus(w http.ResponseWriter, r *http.Request) {
 		"id":     repo.ID,
 		"status": status,
 	})
+}
+
+// handleRepoLog returns the log events retained for a repo.
+func (h *Handler) handleRepoLog(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "Falta id", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(h.Broker.Snapshot(id))
+}
+
+// handleRepoLogClear discards the log events retained for a repo.
+func (h *Handler) handleRepoLogClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var input struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, "JSON inválido", http.StatusBadRequest)
+		return
+	}
+	if input.ID == "" {
+		http.Error(w, "Falta id", http.StatusBadRequest)
+		return
+	}
+
+	h.Broker.Clear(input.ID)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Log limpiado"))
 }
 
 // handleStopRepo stops a repo's app process.

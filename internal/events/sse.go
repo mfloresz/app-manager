@@ -6,16 +6,24 @@ import (
 	"sync"
 )
 
+// maxHistory caps the retained log events per repo. It matches the
+// per-card console line limit in the dashboard.
+const maxHistory = 500
+
 // Broker manages SSE client connections and event broadcasting.
+// It also retains the last maxHistory log events per repo so the
+// dashboard can restore a service's log after a page reload.
 type Broker struct {
 	mu       sync.Mutex
 	channels map[string]map[chan string]struct{} // repoID -> set of channels
+	history  map[string][]SSEEvent              // repoID -> retained log events
 }
 
 // NewBroker creates a new SSE broker.
 func NewBroker() *Broker {
 	return &Broker{
 		channels: make(map[string]map[chan string]struct{}),
+		history:  make(map[string][]SSEEvent),
 	}
 }
 
@@ -46,12 +54,22 @@ func (b *Broker) Unsubscribe(repoID string, ch chan string) {
 }
 
 // Emit sends a structured SSEEvent to repo-specific and global subscribers.
+// Log-like events (log, error, app_output) are also retained per repo.
 func (b *Broker) Emit(evt SSEEvent) {
 	data, _ := json.Marshal(evt)
 	msg := string(data)
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	switch evt.Type {
+	case EventLog, EventError, EventAppOutput:
+		h := append(b.history[evt.RepoID], evt)
+		if len(h) > maxHistory {
+			h = h[len(h)-maxHistory:]
+		}
+		b.history[evt.RepoID] = h
+	}
 
 	// Repo-specific
 	if chans, ok := b.channels[evt.RepoID]; ok {
@@ -86,4 +104,22 @@ func (b *Broker) EmitError(repoID, msg string) {
 	evt := NewError(repoID, msg)
 	fmt.Println("ERROR: " + msg)
 	b.Emit(evt)
+}
+
+// Snapshot returns a copy of the log events retained for a repoID.
+func (b *Broker) Snapshot(repoID string) []SSEEvent {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	h := b.history[repoID]
+	out := make([]SSEEvent, len(h))
+	copy(out, h)
+	return out
+}
+
+// Clear discards the log events retained for a repoID.
+func (b *Broker) Clear(repoID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.history, repoID)
 }

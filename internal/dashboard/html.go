@@ -637,6 +637,7 @@ var repoLatestVer = {};
 var repoCurrentVer = {};
 var repoProgress = {};
 var repoInstalled = {};
+var cardLogs = {};   // repoId -> [{msg, isErr, ts}] mirror of backend log (survives card re-renders)
 var detectedOS = '';
 var detectedArch = '';
 
@@ -729,26 +730,45 @@ function appendGlobalLog(msg, type, timestamp) {
 }
 
 // ── Per-card console functions ──
-function appendCardConsole(repoId, msg, isError, timestamp) {
+function appendConsoleLine(outputEl, msg, isErr, timestamp) {
+  var line = document.createElement('div');
+  line.className = 'console-line' + (isErr ? ' console-line--err' : '');
+  var ts = timestamp ? '[' + timestamp + '] ' : '';
+  line.textContent = ts + msg;
+  outputEl.appendChild(line);
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+
+function pushCardLog(repoId, msg, isErr, timestamp) {
+  if (!msg) return;
+  if (!cardLogs[repoId]) cardLogs[repoId] = [];
+  cardLogs[repoId].push({ msg: msg, isErr: isErr, ts: timestamp });
+  if (cardLogs[repoId].length > 500) cardLogs[repoId].shift();
+
   var sid = safeId(repoId);
   var outputEl = document.getElementById('console-output-' + sid);
-  if (!outputEl) return;
+  var wrapper = document.getElementById('console-' + sid);
+  if (!outputEl || !wrapper) return;
 
   // Show console wrapper
-  var wrapper = document.getElementById('console-' + sid);
-  if (wrapper) wrapper.style.display = 'flex';
+  wrapper.style.display = 'flex';
 
   // Limit lines to prevent DOM bloat
   while (outputEl.children.length > 500) {
     outputEl.removeChild(outputEl.firstChild);
   }
+  appendConsoleLine(outputEl, msg, isErr, timestamp);
+}
 
-  var line = document.createElement('div');
-  line.className = 'console-line' + (isError ? ' console-line--err' : '');
-  var ts = timestamp ? '[' + timestamp + '] ' : '';
-  line.textContent = ts + msg;
-  outputEl.appendChild(line);
-  outputEl.scrollTop = outputEl.scrollHeight;
+function restoreCardLog(repoId) {
+  var logs = cardLogs[repoId] || [];
+  if (!logs.length) return;
+  var sid = safeId(repoId);
+  var outputEl = document.getElementById('console-output-' + sid);
+  var wrapper = document.getElementById('console-' + sid);
+  if (!outputEl || !wrapper) return;
+  wrapper.style.display = 'flex';
+  logs.forEach(function(l) { appendConsoleLine(outputEl, l.msg, l.isErr, l.ts); });
 }
 
 function toggleConsole(sid) {
@@ -757,9 +777,16 @@ function toggleConsole(sid) {
   wrapper.style.display = wrapper.style.display === 'none' ? 'flex' : 'none';
 }
 
-function clearCardConsole(sid) {
+function clearCardConsole(repoId) {
+  cardLogs[repoId] = [];
+  var sid = safeId(repoId);
   var outputEl = document.getElementById('console-output-' + sid);
   if (outputEl) outputEl.innerHTML = '';
+  fetch('/api/repos/log/clear', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: repoId })
+  }).catch(function(){});
 }
 
 globalSrc.onmessage = function(e) {
@@ -810,6 +837,21 @@ function safeId(id) {
 
 function connectRepoSSE(repoId) {
   if (repoSSEs[repoId]) return;
+  repoSSEs[repoId] = 'connecting';
+  // Snapshot first, then open the live stream: events emitted in the
+  // tiny window in between may be lost, but nothing gets duplicated.
+  fetch('/api/repos/log?id=' + encodeURIComponent(repoId))
+    .then(function(r){ return r.json(); })
+    .then(function(events) {
+      (events || []).forEach(function(ev) {
+        pushCardLog(repoId, ev.message, ev.is_error || ev.type === 'error', ev.timestamp);
+      });
+    })
+    .catch(function(){})
+    .then(function(){ openRepoSSE(repoId); });
+}
+
+function openRepoSSE(repoId) {
   var src = new EventSource('/api/events?id=' + encodeURIComponent(repoId));
   repoSSEs[repoId] = src;
 
@@ -878,10 +920,11 @@ function connectRepoSSE(repoId) {
         }
       }
 
-      // App output → card console; everything else → global log
+      // App output and service log lines → card console; also → global log
       if (evt.type === 'app_output') {
-        appendCardConsole(repoId, evt.message, evt.is_error, evt.timestamp);
+        pushCardLog(repoId, evt.message, evt.is_error, evt.timestamp);
       } else if (evt.message) {
+        pushCardLog(repoId, evt.message, evt.type === 'error', evt.timestamp);
         appendGlobalLog('[' + repoId + '] ' + evt.message, evt.type, evt.timestamp);
       }
 
@@ -981,9 +1024,9 @@ function renderRepos() {
 	    // App console
 	    html += '  <div class="repo-console" id="console-' + sid + '">';
 	    html += '    <div class="repo-console-header">';
-	    html += '      <span class="repo-console-label">Salida de la aplicaci\u00f3n</span>';
+	    html += '      <span class="repo-console-label">Log del servicio</span>';
 	    html += '      <div class="repo-console-actions">';
-	    html += '        <button class="console-btn" onclick="clearCardConsole(\'' + sid + '\')" title="Limpiar">\ud83d\uddd1\ufe0f</button>';
+	    html += '        <button class="console-btn" onclick="clearCardConsole(\'' + repo.id + '\')" title="Limpiar log (tambi\u00e9n en el backend)">\ud83d\uddd1\ufe0f</button>';
 	    html += '        <button class="console-btn" onclick="toggleConsole(\'' + sid + '\')" title="Ocultar">\u2715</button>';
 	    html += '      </div>';
 	    html += '    </div>';
@@ -997,6 +1040,7 @@ function renderRepos() {
 
   repos.forEach(function(repo) {
     updateVersionDiff(repo.id, safeId(repo.id));
+    restoreCardLog(repo.id);
   });
 
   updateStats();
