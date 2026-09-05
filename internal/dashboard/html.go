@@ -27,7 +27,7 @@ const HTML = `<!DOCTYPE html>
 
   --text: #ECE7DF;
   --text-secondary: #B0A99F;
-  --text-muted: #78726A;
+  --text-muted: #8A837A;
 
   --accent: #D97757;             /* Claude Terracotta Accent */
   --accent-glow: rgba(217, 119, 87, 0.2);
@@ -58,14 +58,28 @@ const HTML = `<!DOCTYPE html>
    RESET & BASE
    ═══════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 14px; -webkit-font-smoothing: antialiased; }
+html { font-size: 15px; -webkit-font-smoothing: antialiased; }
 body {
   font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
-  line-height: 1.4;
+  line-height: 1.45;
   overflow-x: hidden;
+}
+
+/* FOCUS (keyboard navigation) */
+.btn:focus-visible, .console-btn:focus-visible, .modal-close:focus-visible, .form-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+
+/* TOUCH TARGETS (pointer devices, e.g. phones / Termux) */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; padding: 8px 14px; gap: 6px; }
+  .console-btn { min-height: 40px; min-width: 44px; padding: 8px 12px; }
+  .modal-close { min-height: 40px; min-width: 40px; display: flex; align-items: center; justify-content: center; }
 }
 
 /* SCROLLBAR */
@@ -111,7 +125,6 @@ body {
 .header-sub { font-size: 0.7rem; color: var(--text-muted); font-weight: 500; display: none; }
 @media(min-width:640px){ .header-sub { display: inline; margin-left: 6px; } }
 
-.header-right { display: flex; align-items: center; gap: 8px; }
 .header-meta {
   font-size: 0.7rem;
   color: var(--text-secondary);
@@ -196,7 +209,7 @@ body {
 /* ═══════════════════════════════════════
    BADGES (Small Condensed)
    ═══════════════════════════════════════ */
-.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.65rem; font-weight: 600; padding: 2px 6px; border-radius: var(--radius-sm); white-space: nowrap; text-transform: uppercase; letter-spacing: 0.02em; }
+.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; font-weight: 600; padding: 2px 7px; border-radius: var(--radius-sm); white-space: nowrap; text-transform: uppercase; letter-spacing: 0.02em; }
 .badge--running { background: var(--success-subtle); color: var(--success); border: 1px solid rgba(125,170,129,0.3); }
 .badge--stopped { background: var(--surface-alt); color: var(--text-muted); border: 1px solid var(--border); }
 .badge--busy { background: var(--accent-subtle); color: var(--accent); border: 1px solid rgba(217,119,87,0.3); }
@@ -208,14 +221,16 @@ body {
    ═══════════════════════════════════════ */
 .versions { display: flex; gap: 12px; margin-bottom: 10px; background: var(--surface-alt); padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); align-items: center; }
 .version-box { display: flex; align-items: center; gap: 6px; flex: 1; }
-.version-label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+.version-label { font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
 .version-value { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 600; }
 .version-value--current { color: var(--text); }
 .version-value--new { color: var(--accent-hover); }
 .version-value--pending { color: var(--warning); }
-.version-diff { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; font-size: 0.62rem; font-weight: 600; padding: 1px 4px; border-radius: 3px; }
+.version-diff { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; font-size: 0.68rem; font-weight: 600; padding: 1px 4px; border-radius: 3px; }
 .version-diff--same { color: var(--text-muted); background: var(--surface); }
 .version-diff--new { color: var(--success); background: var(--success-subtle); }
+.progress-pct { font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-muted); margin-left: 8px; display: none; }
+.progress-pct--active { display: inline; }
 
 /* ═══════════════════════════════════════
    ACTIONS / BUTTONS (Condensed & Small)
@@ -245,10 +260,11 @@ body {
 .btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
 .btn--primary { background: var(--accent); color: #181614; border-color: var(--accent); font-weight: 700; }
 .btn--primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #181614; }
-.btn--success { background: var(--success); color: #181614; border-color: var(--success); font-weight: 700; }
-.btn--success:hover { background: #8fbc93; color: #181614; }
 .btn--danger { color: var(--danger); border-color: rgba(217, 107, 107, 0.3); background: var(--danger-subtle); }
 .btn--danger:hover { background: rgba(217, 107, 107, 0.25); border-color: var(--danger); }
+.btn--warning { background: var(--warning-subtle); color: var(--warning); border-color: rgba(217,160,91,0.3); font-weight: 700; }
+.btn--warning:hover { background: rgba(217, 160, 91, 0.25); border-color: var(--warning); }
+.btn--remove { margin-left: auto; }
 .btn--ghost { background: transparent; border-color: transparent; color: var(--text-muted); padding: 3px 5px; }
 .btn--ghost:hover { background: var(--surface-hover); color: var(--text); }
 
@@ -309,7 +325,7 @@ body {
   justify-content: space-between;
 }
 .repo-console-label {
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -340,8 +356,8 @@ body {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.65rem;
-  padding: 2px 5px;
+  font-size: 0.72rem;
+  padding: 2px 6px;
   border-radius: var(--radius-sm);
   line-height: 1;
   transition: all var(--transition);
@@ -358,7 +374,7 @@ body {
   height: 120px;
   overflow-y: auto;
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-all;
@@ -371,7 +387,7 @@ body {
    ═══════════════════════════════════════ */
 .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: center; backdrop-filter: blur(2px); }
 .modal-overlay.active { display: flex; }
-.modal { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 18px; max-width: 420px; width: 92%; box-shadow: var(--shadow); }
+.modal { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 18px; max-width: 420px; width: 92%; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow); }
 .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .modal-header h2 { font-size: 0.95rem; font-weight: 700; color: var(--text); }
 .modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px; }
@@ -381,9 +397,9 @@ body {
 .form-label { display: block; font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; }
 .form-input { width: 100%; padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 0.8rem; outline: none; font-family: var(--font-sans); }
 .form-input:focus { border-color: var(--accent); }
-.form-select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='%2378726A'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; padding-right: 26px; cursor: pointer; }
+.form-select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='%238A837A'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; padding-right: 26px; cursor: pointer; }
 .form-select:disabled { opacity: 0.5; cursor: default; }
-.form-hint { font-size: 0.68rem; color: var(--text-muted); margin-top: 4px; background: var(--surface-alt); padding: 4px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.form-hint { font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; background: var(--surface-alt); padding: 4px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
 .form-error { color: var(--danger); font-size: 0.72rem; margin-top: 6px; display: none; font-weight: 500; }
 .modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; border-top: 1px solid var(--border); padding-top: 12px; }
 
@@ -408,6 +424,17 @@ body {
 
 .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.btn-icon-sync { display:inline-flex; vertical-align:middle; }
+.btn-icon-sync.spinning svg { animation: spin 1s linear infinite; }
+
+#self-update-btn.has-update { background:var(--warning-subtle); color:var(--warning); border-color:rgba(217,160,91,0.3); }
+#self-update-btn.has-update:hover { background:var(--warning-subtle); border-color:var(--warning); }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner, .btn-icon-sync.spinning svg, .repo-console-label::before { animation: none; }
+  * { transition-duration: 0ms !important; }
+}
 </style>
 </head>
 <body>
@@ -441,13 +468,6 @@ body {
     </button>
   </div>
 </header>
-<style>
-.btn-icon-sync { display:inline-flex; vertical-align:middle; }
-.btn-icon-sync.spinning svg { animation: spin 1s linear infinite; }
-@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-#self-update-btn.has-update { background:var(--warning-subtle); color:var(--warning); border-color:rgba(217,160,91,0.3); }
-#self-update-btn.has-update:hover { background:var(--warning-subtle); border-color:var(--warning); }
-</style>
 
 <!-- ══════ STATS BAR ══════ -->
 <div class="stats-bar" id="stats-bar">
@@ -504,11 +524,11 @@ body {
 </div><!-- /.page-wrapper -->
 
 <!-- ══════ ADD MODAL ══════ -->
-<div class="modal-overlay" id="add-modal">
-  <div class="modal">
+<div class="modal-overlay" id="add-modal" role="dialog" aria-modal="true" aria-labelledby="add-modal-title">
+  <form class="modal" id="add-form">
     <div class="modal-header">
-      <h2>Añadir Repositorio</h2>
-      <button class="modal-close" onclick="hideAddModal()">
+      <h2 id="add-modal-title">Añadir Repositorio</h2>
+      <button class="modal-close" type="button" onclick="hideAddModal()" aria-label="Cerrar">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg>
       </button>
     </div>
@@ -557,18 +577,18 @@ body {
       <div class="form-error" id="modal-error"></div>
     </div>
     <div class="modal-actions">
-      <button class="btn" onclick="hideAddModal()">Cancelar</button>
-      <button class="btn btn--primary" onclick="addRepo()">Añadir</button>
+      <button class="btn" type="button" onclick="hideAddModal()">Cancelar</button>
+      <button class="btn btn--primary" type="submit">Añadir</button>
     </div>
-  </div>
+  </form>
 </div>
 
 <!-- ══════ EDIT MODAL ══════ -->
-<div class="modal-overlay" id="edit-modal">
-  <div class="modal">
+<div class="modal-overlay" id="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+  <form class="modal" id="edit-form">
     <div class="modal-header">
-      <h2>Editar Repositorio</h2>
-      <button class="modal-close" onclick="hideEditModal()">
+      <h2 id="edit-modal-title">Editar Repositorio</h2>
+      <button class="modal-close" type="button" onclick="hideEditModal()" aria-label="Cerrar">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg>
       </button>
     </div>
@@ -619,14 +639,31 @@ body {
       <div class="form-error" id="edit-modal-error"></div>
     </div>
     <div class="modal-actions">
-      <button class="btn" onclick="hideEditModal()">Cancelar</button>
-      <button class="btn btn--primary" onclick="saveEditRepo()">Guardar cambios</button>
+      <button class="btn" type="button" onclick="hideEditModal()">Cancelar</button>
+      <button class="btn btn--primary" type="submit">Guardar cambios</button>
+    </div>
+  </form>
+</div>
+
+<!-- ══════ CONFIRM MODAL ══════ -->
+<div class="modal-overlay" id="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="confirm-title">Confirmar</h2>
+      <button class="modal-close" type="button" onclick="hideConfirmModal()" aria-label="Cerrar">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+    <p id="confirm-message" style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:16px;"></p>
+    <div class="modal-actions" style="margin-top:0;">
+      <button class="btn" type="button" onclick="hideConfirmModal()">Cancelar</button>
+      <button class="btn btn--danger" type="button" id="confirm-ok">Confirmar</button>
     </div>
   </div>
 </div>
 
-<!-- ══════ TOAST CONTAINER ══════ -->
-<div class="toast-container" id="toast-container"></div>
+<!-- ══════ TOAST CONTAINER (live region: announced by screen readers) ══════ -->
+<div class="toast-container" id="toast-container" aria-live="polite" role="status"></div>
 
 <script>
 // STATE
@@ -705,11 +742,26 @@ var ICONS = {
   stop: '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5.5"/><rect x="5" y="5" width="4" height="4" rx=".5" fill="currentColor"/></svg>',
   start: '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5.5"/><path d="M5.5 4.5v5l4-2.5-4-2.5z" fill="currentColor"/></svg>',
   remove: '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5.5"/><path d="M4.5 4.5l5 5M9.5 4.5l-5 5"/></svg>',
+  trash: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 3h9M2 3l1 8h6l1-8M4 3V2a1 1 0 011-1h2a1 1 0 011 1v1"/><path d="M4.5 5v4M7.5 5v4"/></svg>',
   plus: '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 2v10M2 7h10"/></svg>',
   edit: '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10.5 1.5l2 2L4 12H2v-2l8.5-8.5z"/></svg>',
   running: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="5"/><path d="M4 6l1.5 1.5L8 4"/></svg>',
   stopped: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="5"/><path d="M4 4l4 4M8 4l-4 4"/></svg>'
 };
+
+// esc escapes text interpolated into innerHTML (owner/repo names, versions,
+// messages...) so GitHub-sourced strings can't inject markup.
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+// escJs additionally neutralizes quotes for inline onclick="fn('...')" attrs
+// (entity decoding happens before JS parsing, so &#39; alone isn't enough).
+function escJs(s) {
+  return esc(String(s)).replace(/\\/g, '&#92;').replace(/&#39;/g, '\\&#39;');
+}
 
 // GLOBAL SSE & LOG
 var globalLog = document.getElementById('global-log');
@@ -789,18 +841,163 @@ function clearCardConsole(repoId) {
   }).catch(function(){});
 }
 
+// UNIFIED SSE: the broker broadcasts every repo event to the global stream
+// (tagged with repo_id), so one connection replaces one per repo. This also
+// removes the duplicate global-log lines the per-repo handlers used to add.
+var stuckTimers = {}; // repoId -> force-fail timer for stalled operations
+var BUSY_STATES = ['checking','downloading','stopping','replacing','starting','verifying'];
+
 globalSrc.onmessage = function(e) {
   try {
     var evt = JSON.parse(e.data);
-    // Skip app output — goes to per-card console instead
-    if (evt.type === 'app_output') return;
-    if (evt.message) {
-      appendGlobalLog(evt.message, evt.type, evt.timestamp);
+    var repoId = evt.repo_id;
+    if (!repoId || repoId === '_system') {
+      if (evt.message) appendGlobalLog(evt.message, evt.type, evt.timestamp);
+      return;
     }
+    handleRepoEvent(repoId, evt);
   } catch(err) {
     if (e.data) appendGlobalLog(e.data, 'info');
   }
 };
+
+function handleRepoEvent(repoId, evt) {
+  var sid = safeId(repoId);
+
+  if (evt.type === 'progress') {
+    if (evt.percent !== undefined) {
+      repoProgress[repoId] = evt.percent;
+      var barEl = document.getElementById('progress-' + sid);
+      if (barEl) {
+        barEl.style.width = evt.percent + '%';
+        var wrapper = barEl.closest('.progress-bar');
+        if (wrapper) wrapper.classList.add('progress-bar--active');
+      }
+      var pctEl = document.getElementById('pct-' + sid);
+      if (pctEl) {
+        pctEl.textContent = evt.percent + '%';
+        pctEl.classList.add('progress-pct--active');
+      }
+    }
+    if (evt.step === 'download' && evt.percent !== undefined) {
+      updateStatusBadge(repoId, 'downloading');
+    }
+  }
+  else if (evt.type === 'version') {
+    if (evt.current) {
+      repoCurrentVer[repoId] = evt.current;
+      var curEl = document.getElementById('current-' + sid);
+      if (curEl) curEl.textContent = evt.current;
+    }
+    if (evt.latest) {
+      repoLatestVer[repoId] = evt.latest;
+      var newEl = document.getElementById('newver-' + sid);
+      if (newEl) {
+        newEl.textContent = evt.latest;
+        var cls = 'version-value version-value--new';
+        if (repoLatestVer[repoId] !== repoCurrentVer[repoId]) cls += ' version-value--pending';
+        newEl.className = cls;
+      }
+      updateVersionDiff(repoId, sid);
+    }
+    // CheckVersion may have discovered the binary: sync state in place
+    // instead of re-rendering the whole grid.
+    refreshRepoData(repoId);
+  }
+  if (evt.type === 'status' || evt.type === 'update') {
+    if (evt.status) {
+      var mappedStatus = mapBackendStatus(evt.status);
+      repoStatus[repoId] = mappedStatus;
+      updateStatusBadge(repoId, mappedStatus);
+      updateButtons(repoId, mappedStatus);
+
+      if (BUSY_STATES.indexOf(mappedStatus) === -1 && stuckTimers[repoId]) {
+        clearTimeout(stuckTimers[repoId]);
+        delete stuckTimers[repoId];
+      }
+      if (mappedStatus === 'completed' || mappedStatus === 'failed') {
+        deactivateProgress(sid);
+      }
+
+      if (mappedStatus === 'completed') {
+        repoInstalled[repoId] = true;
+        showToast('Instalación completada para ' + repoId, 'success');
+        refreshRepoData(repoId);
+      }
+      if (mappedStatus === 'failed') {
+        showToast('Error en operación para ' + repoId, 'error');
+      }
+    }
+
+    if (evt.service_run !== undefined) {
+      repoSvc[repoId] = evt.service_run;
+      updateSvcBadge(repoId, sid);
+      updateButtons(repoId, repoStatus[repoId]);
+      updateStats();
+    }
+  }
+
+  // App output goes to the card console only; other messages to card + global log
+  if (evt.type === 'app_output') {
+    pushCardLog(repoId, evt.message, evt.is_error, evt.timestamp);
+  } else if (evt.message) {
+    pushCardLog(repoId, evt.message, evt.type === 'error', evt.timestamp);
+    appendGlobalLog('[' + repoId + '] ' + evt.message, evt.type, evt.timestamp);
+  }
+}
+
+function deactivateProgress(sid) {
+  var barEl = document.getElementById('progress-' + sid);
+  if (barEl) {
+    barEl.style.width = '0%';
+    var wrapper = barEl.closest('.progress-bar');
+    if (wrapper) wrapper.classList.remove('progress-bar--active');
+  }
+  var pctEl = document.getElementById('pct-' + sid);
+  if (pctEl) pctEl.classList.remove('progress-pct--active');
+}
+
+// refreshRepoData syncs one repo's state from /api/repos and patches its
+// card in place, avoiding a full grid re-render on every background event.
+function refreshRepoData(repoId) {
+  fetch('/api/repos')
+    .then(function(r){ return r.json(); })
+    .then(function(list) {
+      repos = list;
+      var repo = list.find(function(r){ return r.id === repoId; });
+      if (!repo) return;
+      if (repo.current_version) repoCurrentVer[repoId] = repo.current_version;
+      if (repo.latest_version) repoLatestVer[repoId] = repo.latest_version;
+      var sid = safeId(repoId);
+      var wasInstalled = repoInstalled[repoId];
+      repoInstalled[repoId] = repo.installed ? true : false;
+      var curEl = document.getElementById('current-' + sid);
+      if (curEl) curEl.textContent = repoCurrentVer[repoId] || '--';
+      var newEl = document.getElementById('newver-' + sid);
+      if (newEl) newEl.textContent = repoLatestVer[repoId] || '--';
+      updateVersionDiff(repoId, sid);
+      if (wasInstalled !== repoInstalled[repoId]) {
+        updateStatusBadge(repoId, repoStatus[repoId] || 'idle');
+        updateButtons(repoId, repoStatus[repoId] || 'idle');
+      }
+      updateStats();
+    })
+    .catch(function(){});
+}
+
+// pollSelfVersion reloads the page as soon as the backend reports the new
+// version after a self-update (fallback reload after ~60s).
+function pollSelfVersion(oldVersion, attempt) {
+  attempt = attempt || 0;
+  if (attempt > 30) { location.reload(); return; }
+  fetch('/api/self')
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      if (d.version && d.version !== oldVersion) location.reload();
+      else setTimeout(function(){ pollSelfVersion(oldVersion, attempt + 1); }, 2000);
+    })
+    .catch(function(){ setTimeout(function(){ pollSelfVersion(oldVersion, attempt + 1); }, 2000); });
+}
 
 // LOAD REPOS
 function loadRepos() {
@@ -817,7 +1014,7 @@ function loadRepos() {
 	        if (['completed', 'failed'].indexOf(repoStatus[repo.id]) !== -1) {
 	          repoStatus[repo.id] = 'idle';
 	        }
-	        connectRepoSSE(repo.id);
+	        restoreRepoLog(repo.id);
 	      });
       renderRepos();
       fetchServiceStatuses();
@@ -828,18 +1025,17 @@ function loadRepos() {
     });
 }
 
-// PER-REPO SSE (Routes log output to the main log console)
-var repoSSEs = {};
+// LOG SNAPSHOT: restores the retained backend log once per repo. Live
+// events arrive through the single global SSE connection below.
+var logRestored = {};
 
 function safeId(id) {
-  return id.replace(/[\/\s]/g, '_');
+  return id.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-function connectRepoSSE(repoId) {
-  if (repoSSEs[repoId]) return;
-  repoSSEs[repoId] = 'connecting';
-  // Snapshot first, then open the live stream: events emitted in the
-  // tiny window in between may be lost, but nothing gets duplicated.
+function restoreRepoLog(repoId) {
+  if (logRestored[repoId]) return;
+  logRestored[repoId] = true;
   fetch('/api/repos/log?id=' + encodeURIComponent(repoId))
     .then(function(r){ return r.json(); })
     .then(function(events) {
@@ -847,91 +1043,7 @@ function connectRepoSSE(repoId) {
         pushCardLog(repoId, ev.message, ev.is_error || ev.type === 'error', ev.timestamp);
       });
     })
-    .catch(function(){})
-    .then(function(){ openRepoSSE(repoId); });
-}
-
-function openRepoSSE(repoId) {
-  var src = new EventSource('/api/events?id=' + encodeURIComponent(repoId));
-  repoSSEs[repoId] = src;
-
-  src.onmessage = function(e) {
-    var sid = safeId(repoId);
-
-    try {
-      var evt = JSON.parse(e.data);
-
-      if (evt.type === 'progress') {
-        if (evt.percent !== undefined) {
-          repoProgress[repoId] = evt.percent;
-          var barEl = document.getElementById('progress-' + sid);
-          if (barEl) {
-            barEl.style.width = evt.percent + '%';
-            var wrapper = barEl.closest('.progress-bar');
-            if (wrapper) wrapper.classList.add('progress-bar--active');
-          }
-        }
-        if (evt.step === 'download' && evt.percent !== undefined) {
-          updateStatusBadge(repoId, 'downloading');
-        }
-      }
-    	  else if (evt.type === 'version') {
-    	    if (evt.current) {
-    	      repoCurrentVer[repoId] = evt.current;
-    	      var curEl = document.getElementById('current-' + sid);
-    	      if (curEl) curEl.textContent = evt.current;
-    	    }
-    	    if (evt.latest) {
-    	      repoLatestVer[repoId] = evt.latest;
-    	      var newEl = document.getElementById('newver-' + sid);
-    	      if (newEl) {
-    	        newEl.textContent = evt.latest;
-    	        var cls = 'version-value version-value--new';
-    	        if (repoLatestVer[repoId] !== repoCurrentVer[repoId]) cls += ' version-value--pending';
-    	        newEl.className = cls;
-    	      }
-    	      updateVersionDiff(repoId, sid);
-    	    }
-    	    // Refresh to sync installed state (CheckVersion may have found binary)
-    	    setTimeout(function() { loadRepos(); }, 300);
-    	  }
-    	  if (evt.type === 'status') {
-    	    if (evt.status) {
-    	      var mappedStatus = mapBackendStatus(evt.status);
-    	      repoStatus[repoId] = mappedStatus;
-    	      updateStatusBadge(repoId, mappedStatus);
-    	      updateButtons(repoId, mappedStatus);
-
-    	      if (mappedStatus === 'completed') {
-    	        repoInstalled[repoId] = true;
-    	        showToast('Instalación completada para ' + repoId, 'success');
-    	        setTimeout(function() { loadRepos(); }, 1000);
-    	      }
-    	      if (mappedStatus === 'failed') {
-    	        showToast('Error en operación para ' + repoId, 'error');
-    	      }
-    	    }
-
-        if (evt.service_run !== undefined) {
-          repoSvc[repoId] = evt.service_run;
-          updateSvcBadge(repoId, sid);
-          updateButtons(repoId, repoStatus[repoId]);
-          updateStats();
-        }
-      }
-
-      // App output and service log lines → card console; also → global log
-      if (evt.type === 'app_output') {
-        pushCardLog(repoId, evt.message, evt.is_error, evt.timestamp);
-      } else if (evt.message) {
-        pushCardLog(repoId, evt.message, evt.type === 'error', evt.timestamp);
-        appendGlobalLog('[' + repoId + '] ' + evt.message, evt.type, evt.timestamp);
-      }
-
-    } catch(err) {
-      if (e.data) appendGlobalLog('[' + repoId + '] ' + e.data, 'info');
-    }
-  };
+    .catch(function(){});
 }
 
 function mapBackendStatus(st) {
@@ -980,8 +1092,8 @@ function renderRepos() {
 	    html += '  <div class="repo-card-top">';
 	    html += '    <div class="repo-card-title">';
 	    html += '      <span class="repo-icon">' + ICONS.repo + '</span>';
-	    html += '      <a href="https://github.com/' + repo.owner + '/' + repo.name + '" target="_blank" rel="noopener"><span class="owner">' + repo.owner + '/</span>' + repo.name + '</a>';
-	    html += '      <span class="app-tag">' + (repo.app_name || repo.name) + '</span>';
+	    html += '      <a href="https://github.com/' + encodeURIComponent(repo.owner) + '/' + encodeURIComponent(repo.name) + '" target="_blank" rel="noopener"><span class="owner">' + esc(repo.owner) + '/</span>' + esc(repo.name) + '</a>';
+	    html += '      <span class="app-tag">' + esc(repo.app_name || repo.name) + '</span>';
 	    html += '    </div>';
 	    html += '    <div class="repo-card-badges">';
 	    html += getSvcBadgeHtml(svc);
@@ -1001,20 +1113,23 @@ function renderRepos() {
 	    html += '  <div class="versions">';
 	    html += '    <div class="version-box">';
 	    html += '      <span class="version-label">Actual:</span>';
-	    html += '      <span class="version-value version-value--current" id="current-' + sid + '">' + cur + '</span>';
+	    html += '      <span class="version-value version-value--current" id="current-' + sid + '">' + esc(cur) + '</span>';
 	    html += '    </div>';
 	    html += '    <div class="version-box">';
 	    html += '      <span class="version-label">Última:</span>';
 	    var latCls = 'version-value version-value--new';
 	    if (lat !== cur && lat !== '--') latCls += ' version-value--pending';
-	    html += '      <span class="' + latCls + '" id="newver-' + sid + '">' + lat + '</span><span id="diff-' + sid + '"></span>';
+	    html += '      <span class="' + latCls + '" id="newver-' + sid + '">' + esc(lat) + '</span><span id="diff-' + sid + '"></span>';
 	    html += '    </div>';
 	    html += '  </div>';
 
 	    // Progress Bar
 	    var prog = repoProgress[repo.id] || 0;
 	    var progActive = (busyStates.indexOf(st) !== -1 || prog > 0) ? ' progress-bar--active' : '';
-	    html += '  <div class="progress-bar' + progActive + '"><div class="progress-bar-fill" id="progress-' + sid + '" style="width:' + prog + '%"></div></div>';
+	    html += '  <div style="display:flex;align-items:center;gap:8px;">';
+    html += '    <div class="progress-bar' + progActive + '" style="flex:1;margin-bottom:0;"><div class="progress-bar-fill" id="progress-' + sid + '" style="width:' + prog + '%"></div></div>';
+    html += '    <span class="progress-pct' + (prog > 0 ? ' progress-pct--active' : '') + '" id="pct-' + sid + '">' + (prog > 0 ? prog + '%' : '') + '</span>';
+    html += '  </div>';
 
 	    // Actions
 	    html += '  <div class="actions" id="actions-' + sid + '">';
@@ -1026,7 +1141,7 @@ function renderRepos() {
 	    html += '    <div class="repo-console-header">';
 	    html += '      <span class="repo-console-label">Log del servicio</span>';
 	    html += '      <div class="repo-console-actions">';
-	    html += '        <button class="console-btn" onclick="clearCardConsole(\'' + repo.id + '\')" title="Limpiar log (tambi\u00e9n en el backend)">\ud83d\uddd1\ufe0f</button>';
+	    html += '        <button class="console-btn" onclick="clearCardConsole(\'' + escJs(repo.id) + '\')" title="Limpiar log (tambi\u00e9n en el backend)">' + ICONS.trash + '</button>';
 	    html += '        <button class="console-btn" onclick="toggleConsole(\'' + sid + '\')" title="Ocultar">\u2715</button>';
 	    html += '      </div>';
 	    html += '    </div>';
@@ -1072,36 +1187,36 @@ function getButtonsHtml(repoId, st, svc) {
   // ── No instalado: solo buscar, instalar, eliminar ──
   if (!isInstalled) {
     var h = '';
-    h += '<button class="btn" onclick="checkRepo(\'' + repoId + '\')" ' + disabled + ' title="Buscar versi\u00f3n disponible">' + ICONS.check + ' Buscar</button>';
-    h += '<button class="btn btn--primary" onclick="installRepo(\'' + repoId + '\')" ' + disabled + ' title="Descargar e instalar binario">' + ICONS.download + ' Instalar</button>';
-    h += '<button class="btn" onclick="editRepo(\'' + repoId + '\')" title="Editar configuraci\u00f3n">' + ICONS.edit + ' Editar</button>';
-    h += '<button class="btn" onclick="removeRepo(\'' + repoId + '\')" ' + disabled + ' title="Eliminar repositorio">' + ICONS.remove + ' Eliminar</button>';
+    h += '<button class="btn" onclick="checkRepo(\'' + escJs(repoId) + '\')" ' + disabled + ' title="Buscar versi\u00f3n disponible">' + ICONS.check + ' Buscar</button>';
+    h += '<button class="btn btn--primary" onclick="installRepo(\'' + escJs(repoId) + '\')" ' + disabled + ' title="Descargar e instalar binario">' + ICONS.download + ' Instalar</button>';
+    h += '<button class="btn" onclick="editRepo(\'' + escJs(repoId) + '\')" title="Editar configuraci\u00f3n">' + ICONS.edit + ' Editar</button>';
+    h += '<button class="btn btn--remove" onclick="removeRepo(\'' + escJs(repoId) + '\')" ' + disabled + ' title="Eliminar repositorio">' + ICONS.remove + ' Eliminar</button>';
     return h;
   }
 
   // ── Instalado: conjunto completo de acciones ──
   var h = '';
-  h += '<button class="btn" onclick="checkRepo(\'' + repoId + '\')" ' + disabled + ' title="Buscar actualizaci\u00f3n">' + ICONS.check + ' Buscar</button>';
+  h += '<button class="btn" onclick="checkRepo(\'' + escJs(repoId) + '\')" ' + disabled + ' title="Buscar actualizaci\u00f3n">' + ICONS.check + ' Buscar</button>';
 
   var cur = repoCurrentVer[repoId];
   var lat = repoLatestVer[repoId];
   var hasUpdate = (lat && cur && lat !== cur && lat !== '--' && cur !== '--');
 
-  h += '<button class="btn ' + (hasUpdate ? 'btn--success' : '') + '" onclick="updateRepo(\'' + repoId + '\')" ' + disabled + ' title="Actualizar binario">' + ICONS.download + ' Actualizar</button>';
+  h += '<button class="btn ' + (hasUpdate ? 'btn--warning' : '') + '" onclick="updateRepo(\'' + escJs(repoId) + '\')" ' + disabled + ' title="Actualizar binario">' + ICONS.download + ' Actualizar</button>';
 
   if (svc === 'running') {
-    h += '<button class="btn btn--danger" onclick="stopService(\'' + repoId + '\')" ' + disabled + ' title="Detener servicio">' + ICONS.stop + ' Detener</button>';
-    h += '<button class="btn" onclick="restartService(\'' + repoId + '\')" ' + disabled + ' title="Reiniciar servicio">' + ICONS.restart + ' Reiniciar</button>';
+    h += '<button class="btn btn--danger" onclick="stopService(\'' + escJs(repoId) + '\')" ' + disabled + ' title="Detener servicio">' + ICONS.stop + ' Detener</button>';
+    h += '<button class="btn" onclick="restartService(\'' + escJs(repoId) + '\')" ' + disabled + ' title="Reiniciar servicio">' + ICONS.restart + ' Reiniciar</button>';
   } else if (svc === 'stopped') {
-    h += '<button class="btn" onclick="startService(\'' + repoId + '\')" ' + disabled + ' title="Iniciar servicio">' + ICONS.start + ' Iniciar</button>';
+    h += '<button class="btn" onclick="startService(\'' + escJs(repoId) + '\')" ' + disabled + ' title="Iniciar servicio">' + ICONS.start + ' Iniciar</button>';
   } else {
-    h += '<button class="btn" onclick="startService(\'' + repoId + '\')" ' + disabled + ' title="Iniciar servicio">' + ICONS.start + ' Iniciar</button>';
-    h += '<button class="btn" onclick="restartService(\'' + repoId + '\')" ' + disabled + ' title="Reiniciar servicio">' + ICONS.restart + ' Reiniciar</button>';
+    h += '<button class="btn" onclick="startService(\'' + escJs(repoId) + '\')" ' + disabled + ' title="Iniciar servicio">' + ICONS.start + ' Iniciar</button>';
+    h += '<button class="btn" onclick="restartService(\'' + escJs(repoId) + '\')" ' + disabled + ' title="Reiniciar servicio">' + ICONS.restart + ' Reiniciar</button>';
   }
 
-  h += '<button class="btn" onclick="removeRepo(\'' + repoId + '\')" ' + disabled + ' title="Eliminar repositorio">' + ICONS.remove + ' Eliminar</button>';
+  h += '<button class="btn" onclick="editRepo(\'' + escJs(repoId) + '\')" title="Editar configuraci\u00f3n">' + ICONS.edit + ' Editar</button>';
 
-  h += '<button class="btn" onclick="editRepo(\'' + repoId + '\')" title="Editar configuraci\u00f3n">' + ICONS.edit + ' Editar</button>';
+  h += '<button class="btn btn--remove" onclick="removeRepo(\'' + escJs(repoId) + '\')" ' + disabled + ' title="Eliminar repositorio">' + ICONS.remove + ' Eliminar</button>';
 
   return h;
 }
@@ -1166,37 +1281,26 @@ function updateStats() {
   document.getElementById('stat-running').textContent = activeCount;
 }
 
-// SERVICE POLLING
+// SERVICE STATUS POLLING — one batched request. Crash/stop events arrive
+// in realtime via SSE (the manager emits 'stopped' when a process exits);
+// this poll is the fallback for processes started outside ap-manager.
 function fetchServiceStatuses() {
-  repos.forEach(function(r) {
-    fetch('/api/repos/status?id=' + encodeURIComponent(r.id))
-      .then(function(res){return res.json()})
-      .then(function(d){
-        if (d.status) {
-          repoSvc[r.id] = d.status;
-        }
-        updateSvcBadge(r.id, safeId(r.id));
-        updateButtons(r.id, repoStatus[r.id] || 'idle');
+  fetch('/api/repos/statuses')
+    .then(function(r){ return r.json(); })
+    .then(function(list) {
+      (list || []).forEach(function(s) {
+        if (!s.id || !s.status || repoSvc[s.id] === s.status) return;
+        repoSvc[s.id] = s.status;
+        updateSvcBadge(s.id, safeId(s.id));
+        updateButtons(s.id, repoStatus[s.id] || 'idle');
         updateStats();
-      }).catch(function(){});
-  });
+      });
+    }).catch(function(){});
 }
 
 function startServicePolling() {
-  setInterval(function() {
-    repos.forEach(function(r) {
-      fetch('/api/repos/status?id=' + encodeURIComponent(r.id))
-        .then(function(res){return res.json()})
-        .then(function(d){
-          if (d.status) {
-            repoSvc[r.id] = d.status;
-            updateSvcBadge(r.id, safeId(r.id));
-            updateButtons(r.id, repoStatus[r.id] || 'idle');
-            updateStats();
-          }
-        }).catch(function(){});
-    });
-  }, 10000);
+  if (startServicePolling.timer) return;
+  startServicePolling.timer = setInterval(fetchServiceStatuses, 30000);
 }
 
 // ACTIONS API
@@ -1204,7 +1308,7 @@ function checkRepo(id) {
   repoStatus[id] = 'checking';
   updateStatusBadge(id, 'checking');
   updateButtons(id, 'checking');
-  connectRepoSSE(id);
+  restoreRepoLog(id);
   fetch('/api/repos/check?id=' + encodeURIComponent(id))
     .then(function(r){return r.json()})
     .then(function(data) {
@@ -1226,6 +1330,7 @@ function updateRepo(id) {
   var isSelf = repo && (repo.app_name === 'ap-manager' || repo.id === 'mfloresz/app-manager');
 
   if (isSelf) {
+    var prevSelfVersion = document.getElementById('self-version').textContent;
     repoStatus[id] = 'checking';
     updateStatusBadge(id, 'checking');
     updateButtons(id, 'checking');
@@ -1236,15 +1341,13 @@ function updateRepo(id) {
           showToast('🔄 Actualizando AP Manager a ' + data.new_version, 'success');
           // Show message about connection drop
           setTimeout(function() {
-            showToast('⚠️ Refresca la página en unos segundos...', 'success');
+            showToast('⚠️ El servicio se está reiniciando...', 'success');
           }, 3000);
           repoStatus[id] = 'completed';
           updateStatusBadge(id, 'completed');
           updateButtons(id, 'completed');
-          // Auto-refresh after delay
-          setTimeout(function() {
-            location.reload();
-          }, 8000);
+          // Reload as soon as the backend reports the new version
+          pollSelfVersion(prevSelfVersion);
         } else if (data.status === 'no_update') {
           repoStatus[id] = 'idle';
           updateStatusBadge(id, 'idle');
@@ -1270,14 +1373,14 @@ function updateRepo(id) {
   repoStatus[id] = 'checking';
   updateStatusBadge(id, 'checking');
   updateButtons(id, 'checking');
-  connectRepoSSE(id);
+  restoreRepoLog(id);
   fetch('/api/repos/update?id=' + encodeURIComponent(id))
     .then(function(r){return r.json()})
     .then(function(data) {
       if (data.status === 'updating') {
         showToast('Actualización iniciada para ' + id, 'success');
-        setTimeout(function() {
-          var stuck = ['checking','downloading','stopping','replacing','starting','verifying'];
+        stuckTimers[id] = setTimeout(function() {
+          var stuck = BUSY_STATES;
           if (stuck.indexOf(repoStatus[id]) !== -1) {
             repoStatus[id] = 'failed';
             updateStatusBadge(id, 'failed');
@@ -1326,7 +1429,7 @@ function startService(id) {
 	  repoStatus[id] = 'checking';
 	  updateStatusBadge(id, 'checking');
 	  updateButtons(id, 'checking');
-	  connectRepoSSE(id);
+	  restoreRepoLog(id);
 	  fetch('/api/repos/install', {
 	    method:'POST',
 	    headers:{'Content-Type':'application/json'},
@@ -1398,7 +1501,7 @@ function restartService(id) {
 }
 
 function removeRepo(id) {
-  if (!confirm('¿Estás seguro de eliminar el repositorio ' + id + '?')) return;
+  askConfirm('¿Eliminar el repositorio ' + id + '? Se perderá su configuración y logs.', function() {
   fetch('/api/repos/remove', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -1406,20 +1509,18 @@ function removeRepo(id) {
   })
     .then(function(r){
       if (!r.ok) throw new Error('HTTP ' + r.status);
-    	  if (repoSSEs[id]) {
-    	    repoSSEs[id].close();
-    	    delete repoSSEs[id];
-    	  }
     	  delete repoStatus[id];
     	  delete repoSvc[id];
     	  delete repoLatestVer[id];
     	  delete repoCurrentVer[id];
     	  delete repoProgress[id];
     	  delete repoInstalled[id];
+    	  delete logRestored[id];
       showToast('Repositorio eliminado', 'success');
       loadRepos();
     })
 	    .catch(function(err){ showToast('Error al eliminar: ' + err.message, 'error'); });
+  });
 }
 
 // EDIT REPO
@@ -1448,7 +1549,7 @@ function editRepo(id) {
 }
 
 function hideEditModal() {
-  document.getElementById('edit-modal').classList.remove('active');
+  closeModalEl(document.getElementById('edit-modal'));
   editingRepoId = null;
 }
 
@@ -1502,10 +1603,63 @@ function saveEditRepo() {
   });
 }
 
+// MODAL HELPERS (focus management, Escape, overlay click)
+var lastFocused = null;
+
+function openModalEl(el) {
+  lastFocused = document.activeElement;
+  el.classList.add('active');
+  var first = el.querySelector('input:not([readonly]), select, button:not(.modal-close)');
+  if (first) first.focus();
+}
+
+function closeModalEl(el) {
+  el.classList.remove('active');
+  if (lastFocused && lastFocused.focus) lastFocused.focus();
+}
+
+var confirmCallback = null;
+function askConfirm(message, onOk) {
+  document.getElementById('confirm-message').textContent = message;
+  confirmCallback = onOk;
+  openModalEl(document.getElementById('confirm-modal'));
+  document.getElementById('confirm-ok').focus();
+}
+function hideConfirmModal() {
+  closeModalEl(document.getElementById('confirm-modal'));
+  confirmCallback = null;
+}
+document.getElementById('confirm-ok').addEventListener('click', function() {
+  var cb = confirmCallback;
+  hideConfirmModal();
+  if (cb) cb();
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('confirm-modal').classList.contains('active')) { hideConfirmModal(); return; }
+  if (document.getElementById('add-modal').classList.contains('active')) { hideAddModal(); return; }
+  if (document.getElementById('edit-modal').classList.contains('active')) { hideEditModal(); }
+});
+
+[['add-modal', hideAddModal], ['edit-modal', hideEditModal], ['confirm-modal', hideConfirmModal]].forEach(function(pair) {
+  document.getElementById(pair[0]).addEventListener('mousedown', function(e) {
+    if (e.target === document.getElementById(pair[0])) pair[1]();
+  });
+});
+
+document.getElementById('add-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  addRepo();
+});
+document.getElementById('edit-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  saveEditRepo();
+});
+
 // MODAL & TOAST
 function showAddModal() {
-  document.getElementById('add-modal').classList.add('active');
-  document.getElementById('in-owner').focus();
+  openModalEl(document.getElementById('add-modal'));
   // Reset platform fields to detected values
   document.getElementById('in-plat-os').value = detectedOS;
   populateArchSelect('in-plat-arch', detectedOS, detectedArch);
@@ -1513,7 +1667,7 @@ function showAddModal() {
 }
 
 function hideAddModal() {
-  document.getElementById('add-modal').classList.remove('active');
+  closeModalEl(document.getElementById('add-modal'));
   document.getElementById('in-owner').value = '';
   document.getElementById('in-repo').value = '';
   document.getElementById('in-app').value = '';
@@ -1568,7 +1722,7 @@ function addRepo() {
     document.getElementById('in-asset').value = '';
     showToast('Repositorio añadido: ' + data.owner + '/' + data.name, 'success');
     loadRepos();
-    connectRepoSSE(data.id);
+    restoreRepoLog(data.id);
   })
   .catch(function(err){
     errEl.textContent = err.message;
@@ -1582,7 +1736,14 @@ function showToast(msg, type) {
   toast.className = 'toast toast--' + (type || 'success');
 
   var icon = type === 'error' ? ICONS.remove : ICONS.check;
-  toast.innerHTML = '<span class="toast-icon">' + icon + '</span><span class="toast-message">' + msg + '</span>';
+  var iconSpan = document.createElement('span');
+  iconSpan.className = 'toast-icon';
+  iconSpan.innerHTML = icon;
+  var msgSpan = document.createElement('span');
+  msgSpan.className = 'toast-message';
+  msgSpan.textContent = msg;
+  toast.appendChild(iconSpan);
+  toast.appendChild(msgSpan);
 
   container.appendChild(toast);
   setTimeout(function() {
@@ -1615,8 +1776,7 @@ function checkSelfUpdate() {
       }
 
       if (data.has_update) {
-        if (confirm('Nueva versión disponible: ' + data.current + ' \u2192 ' + data.latest + '\n\n¿Deseas actualizar AP Manager?')) {
-          // Proceed with self-update
+        askConfirm('Nueva versión disponible: ' + data.current + ' \u2192 ' + data.latest + '. ¿Actualizar AP Manager?', function() {
           btn.classList.remove('has-update');
           verEl.textContent = '...';
           showToast('Iniciando actualización a ' + data.latest + '...', 'success');
@@ -1625,17 +1785,15 @@ function checkSelfUpdate() {
             .then(function(r){return r.json()})
             .then(function(res) {
               if (res.status === 'self_updating') {
-                showToast('Actualización lanzada. Refresca en unos segundos.', 'success');
-                setTimeout(function() { location.reload(); }, 8000);
+                showToast('Actualización lanzada. Recargando...', 'success');
+                pollSelfVersion(data.current);
               }
             })
             .catch(function() {
               showToast('Error al iniciar actualización', 'error');
               verEl.textContent = data.current;
             });
-        } else {
-          showToast('Actualización cancelada', 'success');
-        }
+        });
       } else {
         showToast('AP Manager está actualizado (' + data.current + ')', 'success');
       }

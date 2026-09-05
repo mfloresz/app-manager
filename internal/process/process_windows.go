@@ -46,15 +46,15 @@ func startProcess(path string, args ...string) (int, error) {
 	return cmd.Process.Pid, nil
 }
 
-func startProcessWithOutput(path string, stdout, stderr io.Writer, args ...string) (int, error) {
+func startProcessWithOutput(path string, stdout, stderr io.Writer, args ...string) (int, func() error, error) {
 	cmd := exec.Command(path, args...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Stdin = nil
 	if err := cmd.Start(); err != nil {
-		return 0, fmt.Errorf("exec: %w", err)
+		return 0, nil, fmt.Errorf("exec: %w", err)
 	}
-	return cmd.Process.Pid, nil
+	return cmd.Process.Pid, cmd.Wait, nil
 }
 
 func lookPath(name string) (string, error) {

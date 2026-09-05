@@ -43,6 +43,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/repos/install", h.handleInstallRepo)
 	mux.HandleFunc("/api/repos/edit", h.handleEditRepo)
 	mux.HandleFunc("/api/repos/status", h.handleRepoStatus)
+	mux.HandleFunc("/api/repos/statuses", h.handleRepoStatuses)
 	mux.HandleFunc("/api/repos/stop", h.handleStopRepo)
 	mux.HandleFunc("/api/repos/start", h.handleStartRepo)
 	mux.HandleFunc("/api/repos/restart", h.handleRestartRepo)
@@ -292,6 +293,27 @@ func (h *Handler) handleRepoStatus(w http.ResponseWriter, r *http.Request) {
 		"id":     repo.ID,
 		"status": status,
 	})
+}
+
+// handleRepoStatuses returns the running/stopped state of every repo in a
+// single request, so the dashboard can poll with one call instead of one
+// per repository.
+func (h *Handler) handleRepoStatuses(w http.ResponseWriter, r *http.Request) {
+	type repoStatus struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	statuses := make([]repoStatus, 0)
+	for _, repo := range h.Store.List() {
+		status := "stopped"
+		if h.ProcMan.IsRunning(repo.ID) {
+			status = "running"
+		}
+		statuses = append(statuses, repoStatus{ID: repo.ID, Status: status})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(statuses)
 }
 
 // handleRepoLog returns the log events retained for a repo.

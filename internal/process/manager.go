@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"ap-manager/internal/events"
@@ -296,30 +297,12 @@ func (pm *Manager) StartWithCapture(appName, repoID, appPath string, broker *eve
 	stdoutR, stdoutW := io.Pipe()
 	stderrR, stderrW := io.Pipe()
 
-	pid, err := startProcessWithOutput(appPath, stdoutW, stderrW, args...)
+	pid, wait, err := startProcessWithOutput(appPath, stdoutW, stderrW, args...)
 	if err != nil {
 		stdoutW.Close()
 		stderrW.Close()
 		return 0, fmt.Errorf("error al iniciar %s: %w", appPath, err)
 	}
-
-	// Stream stdout lines to the broker
-	go func() {
-		defer stdoutW.Close()
-		scanner := bufio.NewScanner(stdoutR)
-		for scanner.Scan() {
-			broker.Emit(events.NewAppOutput(repoID, scanner.Text(), false))
-		}
-	}()
-
-	// Stream stderr lines to the broker
-	go func() {
-		defer stderrW.Close()
-		scanner := bufio.NewScanner(stderrR)
-		for scanner.Scan() {
-			broker.Emit(events.NewAppOutput(repoID, scanner.Text(), true))
-		}
-	}()
 
 	// Record the executable identity captured right after start.
 	rec := pidRecord{PID: pid, ExecPath: canonicalExecPath(appPath)}
@@ -329,6 +312,49 @@ func (pm *Manager) StartWithCapture(appName, repoID, appPath string, broker *eve
 	if err := pm.WritePid(repoID, rec); err != nil {
 		fmt.Fprintf(os.Stderr, "Advertencia: no se pudo guardar PID: %v\n", err)
 	}
+
+	// Stream stdout lines to the broker
+	var streams sync.WaitGroup
+	streams.Add(2)
+	go func() {
+		defer stdoutW.Close()
+		defer streams.Done()
+		scanner := bufio.NewScanner(stdoutR)
+		for scanner.Scan() {
+			broker.Emit(events.NewAppOutput(repoID, scanner.Text(), false))
+		}
+	}()
+
+	// Stream stderr lines to the broker
+	go func() {
+		defer stderrW.Close()
+		defer streams.Done()
+		scanner := bufio.NewScanner(stderrR)
+		for scanner.Scan() {
+			broker.Emit(events.NewAppOutput(repoID, scanner.Text(), true))
+		}
+	}()
+
+	// When the process exits: reap it (cmd.Wait), close the io.Pipe writers
+	// so the output scanners see EOF and finish, then announce the service
+	// as stopped so the dashboard reacts to crashes without waiting for the
+	// status poll. Only emit if the PID record still belongs to this start
+	// (a Stop/restart has already announced its own state).
+	go func() {
+		wait()
+		stdoutW.Close()
+		stderrW.Close()
+		streams.Wait()
+		if cur, err := pm.ReadPid(repoID); err != nil ||
+			cur.PID != rec.PID || cur.StartTime != rec.StartTime {
+			return
+		}
+		if ProcessExists(rec.PID) {
+			return
+		}
+		pm.RemovePid(repoID)
+		broker.Emit(events.NewServiceStatus(repoID, "stopped"))
+	}()
 
 	return pid, nil
 }
