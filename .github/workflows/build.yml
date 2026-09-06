@@ -26,31 +26,34 @@ jobs:
             goarch: amd64
             suffix: linux-amd64
 
-          - os: ubuntu-latest
-            goos: linux
-            goarch: arm64
-            suffix: linux-arm64
-
-          - os: ubuntu-latest
-            goos: linux
-            goarch: arm
-            goarm: 7
-            suffix: linux-armv7
-
-          - os: ubuntu-latest
-            goos: darwin
-            goarch: amd64
-            suffix: darwin-amd64
-
-          - os: ubuntu-latest
-            goos: darwin
-            goarch: arm64
-            suffix: darwin-arm64
-
-          - os: ubuntu-latest
-            goos: android
-            goarch: arm64
-            suffix: android-arm64
+          # Temporarily disabled — only linux-amd64 and android-armv7 are
+          # produced in this release. Uncomment individual entries as needed.
+          #
+          # - os: ubuntu-latest
+          #   goos: linux
+          #   goarch: arm64
+          #   suffix: linux-arm64
+          #
+          # - os: ubuntu-latest
+          #   goos: linux
+          #   goarch: arm
+          #   goarm: 7
+          #   suffix: linux-armv7
+          #
+          # - os: ubuntu-latest
+          #   goos: darwin
+          #   goarch: amd64
+          #   suffix: darwin-amd64
+          #
+          # - os: ubuntu-latest
+          #   goos: darwin
+          #   goarch: arm64
+          #   suffix: darwin-arm64
+          #
+          # - os: ubuntu-latest
+          #   goos: android
+          #   goarch: arm64
+          #   suffix: android-arm64
 
           - os: ubuntu-latest
             goos: android

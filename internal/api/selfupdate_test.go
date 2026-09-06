@@ -3,6 +3,7 @@ package api
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -57,14 +58,15 @@ func TestGenerateSelfUpdateScriptInvariants(t *testing.T) {
 	binaryPath := "/opt/my apps/ap-manager"
 	downloadURL := "https://github.com/mfloresz/app-manager/releases/download/v0.2.1/ap-manager-linux-amd64-v0.2.1?foo=1&bar=2"
 	version := "v0.2.1"
-	script, logPath := generateSelfUpdateScript(binaryPath, 1234, downloadURL, version, modeManual, "")
+	shellPath := "/bin/sh"
+	script, logPath := generateSelfUpdateScript(binaryPath, 1234, downloadURL, version, modeManual, "", shellPath)
 	t.Cleanup(func() { os.Remove(logPath) })
 
 	checks := []struct {
 		name string
 		want string
 	}{
-		{"shebang", "#!/bin/sh"},
+		{"shebang", "#!" + shellPath},
 		{"fail fast", "set -eu"},
 		{"binary assignment", "BINARY=" + shellQuote(binaryPath)},
 		{"url assignment", "URL=" + shellQuote(downloadURL)},
@@ -159,6 +161,76 @@ func TestCompareVersions(t *testing.T) {
 	}
 }
 
+// TestResolveShell checks that resolveShell prefers $PREFIX/bin/sh when it
+// exists (Termux layout), falls back to PATH lookup otherwise, and returns a
+// non-empty path on every supported platform.
+func TestResolveShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("resolveShell targets POSIX shells")
+	}
+
+	got, err := resolveShell()
+	if err != nil {
+		t.Fatalf("resolveShell() error: %v", err)
+	}
+	if got == "" {
+		t.Fatal("resolveShell() returned empty path")
+	}
+	if !filepath.IsAbs(got) {
+		t.Errorf("resolveShell() = %q: want absolute path", got)
+	}
+
+	// Termux layout: when $PREFIX points to a directory containing bin/sh,
+	// resolveShell must return that exact path. Simulate by creating a
+	// throwaway prefix with a fake sh inside.
+	tmpPrefix := t.TempDir()
+	fakeBin := filepath.Join(tmpPrefix, "bin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeSh := filepath.Join(fakeBin, "sh")
+	if err := os.WriteFile(fakeSh, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PREFIX", tmpPrefix)
+	got, err = resolveShell()
+	if err != nil {
+		t.Fatalf("resolveShell() with PREFIX error: %v", err)
+	}
+	if got != fakeSh {
+		t.Errorf("resolveShell() with PREFIX = %q, want %q", got, fakeSh)
+	}
+}
+
+// TestGenerateSelfUpdateScriptShebangTermux verifies that the generated
+// script's shebang matches the shell resolveShell picks under a Termux-style
+// $PREFIX. This is the regression test for the auto-update failure on Android.
+func TestGenerateSelfUpdateScriptShebangTermux(t *testing.T) {
+	tmpPrefix := t.TempDir()
+	fakeBin := filepath.Join(tmpPrefix, "bin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeSh := filepath.Join(fakeBin, "sh")
+	if err := os.WriteFile(fakeSh, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PREFIX", tmpPrefix)
+
+	shellPath, err := resolveShell()
+	if err != nil {
+		t.Fatalf("resolveShell: %v", err)
+	}
+	script, logPath := generateSelfUpdateScript("/opt/ap-manager", 1, "https://example/in", "v0", modeManual, "", shellPath)
+	t.Cleanup(func() { os.Remove(logPath) })
+
+	firstLine := strings.SplitN(script, "\n", 2)[0]
+	want := "#!" + shellPath
+	if firstLine != want {
+		t.Errorf("shebang = %q, want %q", firstLine, want)
+	}
+}
+
 // TestDecideSelfUpdate covers the conservative self-update version gate.
 func TestDecideSelfUpdate(t *testing.T) {
 	tests := []struct {
@@ -226,7 +298,7 @@ func TestHandlerPlatformPropagation(t *testing.T) {
 // script: systemd lifecycle markers, MainPID liveness, expected-state
 // tolerance, and the stop/replace/start/verify ordering.
 func TestGenerateSelfUpdateScriptSystemdInvariants(t *testing.T) {
-	script, logPath := generateSelfUpdateScript("/opt/ap-manager", 1234, "https://example.com/dl", "v1.2.3", modeSystemdUser, "ap-manager.service")
+	script, logPath := generateSelfUpdateScript("/opt/ap-manager", 1234, "https://example.com/dl", "v1.2.3", modeSystemdUser, "ap-manager.service", "/bin/sh")
 	t.Cleanup(func() { os.Remove(logPath) })
 
 	checks := []struct {
