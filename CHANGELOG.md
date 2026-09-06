@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.4.3]
+
+### Fixes
+
+* Fixed self-update on Android/Termux. The generated update helper hardcoded `/bin/sh`, which does not exist in the Termux filesystem (the shell lives under `$PREFIX/bin/sh`). The launcher now resolves a POSIX shell at runtime — preferring `$PREFIX/bin/sh`, then `PATH`, then `/bin/sh` — and embeds the same path as the script's shebang so the file stays self-identifying.
+
+### Housekeeping
+
+* Trimmed the release build matrix to `linux-amd64` and `android-armv7` only. Other targets (`linux-arm64`, `linux-armv7`, `darwin-amd64`, `darwin-arm64`, `android-arm64`) are kept as commented entries so they can be re-enabled without consulting git history.
+
+> **Note:** self-update on Termux/arm64 will fail to find an asset until that target is re-enabled in the workflow. Users on that platform should download the release manually for now.
+
+---
+
 ## [v0.4.2]
 
 ### Fixes
