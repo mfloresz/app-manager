@@ -50,6 +50,32 @@ func killProcessForce(pid int) error {
 	return nil
 }
 
+// termuxAppDir returns a writable working directory for child processes on
+// Android/Termux. When ap-manager is launched as a service (systemd-run,
+// foreground service, adb shell, etc.) its cwd is typically "/" — not writable
+// for the Termux uid — so any app that opens relative paths (e.g. PocketBase's
+// pb_data/data.db) crashes with SIGSYS/EACCES on statx/openat. termux-chroot
+// works around this by re-rooting at $PREFIX; we replicate that by chdir'ing
+// the child to $HOME (or $PREFIX) which is always writable for the Termux user.
+//
+// The fix is applied per-spawn to $PREFIX (the Termux install root) or
+// $HOME, in that order, only on Android. Linux/desktop is untouched.
+func termuxAppDir() string {
+	if prefix := strings.TrimRight(os.Getenv("PREFIX"), "/"); prefix != "" {
+		// $PREFIX/bin always exists on Termux and is writable by the Termux uid.
+		if fi, err := os.Stat(prefix); err == nil && fi.IsDir() {
+			return prefix
+		}
+	}
+	if home := strings.TrimRight(os.Getenv("HOME"), "/"); home != "" {
+		if fi, err := os.Stat(home); err == nil && fi.IsDir() {
+			return home
+		}
+	}
+	// Last resort: keep the inherited cwd rather than failing exec.
+	return ""
+}
+
 func startProcess(path string, args ...string) (int, error) {
 	cmd := exec.Command(path, args...)
 	cmd.Stdout = nil
@@ -57,6 +83,9 @@ func startProcess(path string, args ...string) (int, error) {
 	cmd.Stdin = nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,
+	}
+	if dir := termuxAppDir(); dir != "" {
+		cmd.Dir = dir
 	}
 	if err := cmd.Start(); err != nil {
 		return 0, fmt.Errorf("exec: %w", err)
@@ -71,6 +100,9 @@ func startProcessWithOutput(path string, stdout, stderr io.Writer, args ...strin
 	cmd.Stdin = nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,
+	}
+	if dir := termuxAppDir(); dir != "" {
+		cmd.Dir = dir
 	}
 	if err := cmd.Start(); err != nil {
 		return 0, nil, fmt.Errorf("exec: %w", err)

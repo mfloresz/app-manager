@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.4.1]
+
+### Fixes
+
+* Fixed Android/Termux apps crashing with `SIGSYS` on `statx` when launched via the dashboard. When `ap-manager` runs as a service its working directory is `/`, which is not writable for the Termux uid, so any app that opens relative paths (e.g. PocketBase's `pb_data/data.db`) fails on metadata syscalls. Child processes now inherit a writable working directory (`$PREFIX` or `$HOME`) on Android, matching the behavior users previously got by wrapping launches in `termux-chroot`.
+
+---
+
 ## [v0.3.0]
 
 ### What's new
@@ -29,4 +37,4 @@
 
 ### References
 
-Previous version: https://github.com/mfloresz/app-manager/releases/tag/v0.2.1
+Previous version: https://github.com/mfloresz/app-manager/releases/tag/v0.3.0
