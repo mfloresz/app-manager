@@ -7,9 +7,17 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 )
+
+func processLaunchPath(path string) string {
+	if wrapper := termuxChrootPath(); wrapper != "" {
+		return canonicalExecPath(wrapper)
+	}
+	return canonicalExecPath(path)
+}
 
 func processExists(pid int) bool {
 	// Check /proc/{pid}/status directly — more reliable than Signal(0)
@@ -51,33 +59,70 @@ func killProcessForce(pid int) error {
 }
 
 // termuxAppDir returns a writable working directory for child processes on
-// Android/Termux. When ap-manager is launched as a service (systemd-run,
-// foreground service, adb shell, etc.) its cwd is typically "/" — not writable
-// for the Termux uid — so any app that opens relative paths (e.g. PocketBase's
-// pb_data/data.db) crashes with SIGSYS/EACCES on statx/openat. termux-chroot
-// works around this by re-rooting at $PREFIX; we replicate that by chdir'ing
-// the child to $HOME (or $PREFIX) which is always writable for the Termux user.
-//
-// The fix is applied per-spawn to $PREFIX (the Termux install root) or
-// $HOME, in that order, only on Android. Linux/desktop is untouched.
+// Android/Termux. Relative application data (for example PocketBase's
+// pb_data/data.db) should be created from the user's Termux home, not from the
+// service cwd, which may be "/" when ap-manager runs in the background.
 func termuxAppDir() string {
-	if prefix := strings.TrimRight(os.Getenv("PREFIX"), "/"); prefix != "" {
-		// $PREFIX/bin always exists on Termux and is writable by the Termux uid.
-		if fi, err := os.Stat(prefix); err == nil && fi.IsDir() {
-			return prefix
+	for _, dir := range []string{os.Getenv("HOME"), os.Getenv("PREFIX")} {
+		dir = strings.TrimRight(dir, "/")
+		if dir == "" {
+			continue
+		}
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			return dir
 		}
 	}
-	if home := strings.TrimRight(os.Getenv("HOME"), "/"); home != "" {
-		if fi, err := os.Stat(home); err == nil && fi.IsDir() {
-			return home
-		}
-	}
-	// Last resort: keep the inherited cwd rather than failing exec.
 	return ""
 }
 
+// termuxChrootPath returns the trusted termux-chroot wrapper when it is
+// installed. Direct execution of foreign Linux binaries on Android can be
+// killed by the app's syscall filter (notably statx); termux-chroot uses
+// proot to provide the syscall/path compatibility layer that makes those
+// binaries run correctly. No shell is used when invoking the wrapper.
+func termuxChrootPath() string {
+	if prefix := strings.TrimRight(os.Getenv("PREFIX"), "/"); prefix != "" {
+		candidate := filepath.Join(prefix, "bin", "termux-chroot")
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	if candidate, err := exec.LookPath("termux-chroot"); err == nil {
+		return candidate
+	}
+	return ""
+}
+
+func termuxCommandPath(path string) string {
+	prefix := strings.TrimRight(os.Getenv("PREFIX"), "/")
+	if prefix != "" {
+		if rel, err := filepath.Rel(filepath.Join(prefix, "bin"), path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			// termux-chroot exposes $PREFIX/bin as /usr/bin in its root.
+			// Use the name/path relative to that directory instead of the
+			// host-side /data/data/... absolute path.
+			return rel
+		}
+	}
+	if home := strings.TrimRight(os.Getenv("HOME"), "/"); home != "" {
+		if rel, err := filepath.Rel(home, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return rel
+		}
+	}
+	return path
+}
+
+func appCommand(path string, args ...string) *exec.Cmd {
+	if wrapper := termuxChrootPath(); wrapper != "" {
+		argv := make([]string, 0, len(args)+1)
+		argv = append(argv, termuxCommandPath(path))
+		argv = append(argv, args...)
+		return exec.Command(wrapper, argv...)
+	}
+	return exec.Command(path, args...)
+}
+
 func startProcess(path string, args ...string) (int, error) {
-	cmd := exec.Command(path, args...)
+	cmd := appCommand(path, args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil
@@ -94,7 +139,7 @@ func startProcess(path string, args ...string) (int, error) {
 }
 
 func startProcessWithOutput(path string, stdout, stderr io.Writer, args ...string) (int, func() error, error) {
-	cmd := exec.Command(path, args...)
+	cmd := appCommand(path, args...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Stdin = nil

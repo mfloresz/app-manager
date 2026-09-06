@@ -10,6 +10,10 @@ import (
 	"syscall"
 )
 
+func processLaunchPath(path string) string {
+	return canonicalExecPath(path)
+}
+
 func processExists(pid int) bool {
 	process, err := os.FindProcess(pid)
 	if err != nil {

@@ -11,6 +11,10 @@ import (
 	"syscall"
 )
 
+func processLaunchPath(path string) string {
+	return canonicalExecPath(path)
+}
+
 func processExists(pid int) bool {
 	// Check /proc/{pid}/status directly — more reliable than Signal(0)
 	// because Signal(0) can return true for zombie processes.

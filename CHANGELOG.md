@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.4.2]
+
+### Fixes
+
+* Fixed Android/Termux binaries that call blocked syscalls such as `statx` when launched from the dashboard. Child processes now use the installed `termux-chroot`/`proot` compatibility layer when available, while preserving correct paths inside the chroot and tracking the wrapper process safely.
+
+---
+
 ## [v0.4.1]
 
 ### Fixes
@@ -37,4 +45,4 @@
 
 ### References
 
-Previous version: https://github.com/mfloresz/app-manager/releases/tag/v0.3.0
+Previous version: https://github.com/mfloresz/app-manager/releases/tag/v0.4.1

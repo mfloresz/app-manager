@@ -268,7 +268,7 @@ func (pm *Manager) Start(appName, repoID, appPath string, args ...string) (int, 
 
 	// Record the executable identity captured right after start, so later
 	// IsRunning/Stop checks can detect PID reuse or stale records.
-	rec := pidRecord{PID: pid, ExecPath: canonicalExecPath(appPath)}
+	rec := pidRecord{PID: pid, ExecPath: processLaunchPath(appPath)}
 	if token, ok := captureStartIdentity(pid); ok {
 		rec.StartTime = token
 	}
@@ -305,7 +305,7 @@ func (pm *Manager) StartWithCapture(appName, repoID, appPath string, broker *eve
 	}
 
 	// Record the executable identity captured right after start.
-	rec := pidRecord{PID: pid, ExecPath: canonicalExecPath(appPath)}
+	rec := pidRecord{PID: pid, ExecPath: processLaunchPath(appPath)}
 	if token, ok := captureStartIdentity(pid); ok {
 		rec.StartTime = token
 	}
