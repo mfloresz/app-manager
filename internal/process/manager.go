@@ -521,6 +521,33 @@ func SplitArgs(cmd string) []string {
 	return args
 }
 
+// argvMentionsExec reports whether a raw /proc/<pid>/cmdline blob (NUL
+// separated argv) refers to execPath, either as an exact token or by
+// executable basename. Each NUL-separated token is additionally split on
+// whitespace because wrappers such as `sh -c "app --flag ..."` embed the
+// whole command line in a single argv element. It is a pure string matcher
+// (no filesystem access) so it can be unit-tested on any platform; the
+// Android/Termux identity check uses it as a fallback when the recorded
+// PID is a launcher wrapper whose /proc exe link is not the app binary.
+func argvMentionsExec(cmdline, execPath string) bool {
+	wantBase := filepath.Base(execPath)
+	if execPath == "" || wantBase == "" || wantBase == "." || wantBase == string(filepath.Separator) {
+		return false
+	}
+	for _, tok := range strings.Split(cmdline, "\x00") {
+		for _, word := range strings.Fields(tok) {
+			word = strings.Trim(word, `"'`)
+			if word == "" {
+				continue
+			}
+			if word == execPath || filepath.Base(word) == wantBase {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // DetectInstallDir returns the best directory for installing binaries
 // based on the current platform (Termux, Linux, etc.).
 func DetectInstallDir() string {

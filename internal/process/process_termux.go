@@ -8,14 +8,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 )
 
 func processLaunchPath(path string) string {
-	if wrapper := termuxChrootPath(); wrapper != "" {
-		return canonicalExecPath(wrapper)
-	}
+	// Record the REAL application binary, not the termux-chroot wrapper.
+	// The wrapper is a shell script that execs proot, so /proc/<pid>/exe
+	// of the recorded PID is proot (and the app itself may even run as a
+	// child whose exe is proot's loader). Identity against the wrapper
+	// path can therefore never match — see verifyProcessIdentity, which
+	// falls back to argv matching for this reason.
 	return canonicalExecPath(path)
 }
 
@@ -40,9 +44,14 @@ func processExists(pid int) bool {
 func killProcess(pid int) error {
 	// Use syscall.Kill directly instead of os.FindProcess+Signal,
 	// because os.FindProcess doesn't validate existence on Linux/Android.
+	// The recorded PID is the termux-chroot/proot wrapper while the real
+	// app runs as its child, so the child tree is signaled too:
+	// signaling only the wrapper can leave the app orphaned (PPID 1)
+	// still holding its ports, which then breaks the next start.
 	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
 		return fmt.Errorf("SIGTERM(%d): %w", pid, err)
 	}
+	signalChildPids(pid, syscall.SIGTERM)
 	return nil
 }
 
@@ -52,10 +61,53 @@ func killProcessForce(pid int) error {
 	//   1. Setsid changes PGID in ways that can cause the group kill to fail
 	//   2. If the process became a zombie after SIGTERM, group kill returns ESRCH
 	//   3. Sending to the process alone is sufficient
+	// As in killProcess, the wrapper's children are included so no
+	// orphaned app survives the force kill.
 	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
 		return fmt.Errorf("SIGKILL(%d): %w", pid, err)
 	}
+	signalChildPids(pid, syscall.SIGKILL)
 	return nil
+}
+
+// signalChildPids sends sig to the direct children of pid, discovered via
+// /proc. Best effort: processes that exit mid-scan are skipped, and ESRCH
+// from already-dead children is ignored.
+func signalChildPids(pid int, sig syscall.Signal) {
+	for _, child := range childPids(pid) {
+		_ = syscall.Kill(child, sig)
+	}
+}
+
+// childPids returns the PIDs whose parent is ppid, parsed from
+// /proc/<pid>/stat (field 4, PPID — index 1 after the "(comm)" field).
+func childPids(ppid int) []int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	var out []int
+	for _, e := range entries {
+		n, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue // not a PID directory
+		}
+		data, err := os.ReadFile(filepath.Join("/proc", e.Name(), "stat"))
+		if err != nil {
+			continue
+		}
+		s := string(data)
+		idx := strings.LastIndexByte(s, ')')
+		if idx < 0 || idx+1 >= len(s) {
+			continue
+		}
+		fields := strings.Fields(s[idx+1:])
+		if len(fields) < 2 || fields[1] != fmt.Sprint(ppid) {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 // termuxAppDir returns a writable working directory for child processes on
@@ -165,26 +217,36 @@ func captureStartIdentity(pid int) (string, bool) {
 	return procStartTime(pid)
 }
 
-// verifyProcessIdentity compares the live process executable and start token
-// with the recorded identity (strong /proc-based check). The recorded start
-// token is required: a record without it (e.g. path-only JSON) never matches.
-// A zombie, missing or mismatched process never matches either.
+// verifyProcessIdentity compares the live process against the recorded
+// identity. The recorded start token is required: a record without it
+// (e.g. path-only JSON) never matches. A missing process or a start-token
+// mismatch (PID reuse) never matches either.
+//
+// The executable check has two paths because apps launched via
+// termux-chroot run under a wrapper: the recorded PID is the wrapper
+// (a shell script that execs proot), so /proc/<pid>/exe is proot — never
+// the recorded binary — and the app itself may run as a child whose exe
+// is proot's loader. In that case the wrapper's cmdline (which always
+// embeds the launched command, e.g. `sh -c "translator-server ..."`) is
+// matched against the recorded binary instead.
 func verifyProcessIdentity(pid int, rec pidRecord) bool {
 	if rec.ExecPath == "" || rec.StartTime == "" {
-		return false
-	}
-	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
-	if err != nil {
-		return false
-	}
-	if exe != rec.ExecPath {
 		return false
 	}
 	st, ok := procStartTime(pid)
 	if !ok || st != rec.StartTime {
 		return false
 	}
-	return true
+	// Strong check: direct execution without wrapper.
+	if exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid)); err == nil && exe == rec.ExecPath {
+		return true
+	}
+	// Wrapper check: argv matching (also covers an unreadable exe link).
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return false
+	}
+	return argvMentionsExec(string(data), rec.ExecPath)
 }
 
 // procStartTime reads field 22 (starttime) from /proc/<pid>/stat, parsing the
