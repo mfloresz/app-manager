@@ -823,12 +823,6 @@ function restoreCardLog(repoId) {
   logs.forEach(function(l) { appendConsoleLine(outputEl, l.msg, l.isErr, l.ts); });
 }
 
-function toggleConsole(sid) {
-  var wrapper = document.getElementById('console-' + sid);
-  if (!wrapper) return;
-  wrapper.style.display = wrapper.style.display === 'none' ? 'flex' : 'none';
-}
-
 function clearCardConsole(repoId) {
   cardLogs[repoId] = [];
   var sid = safeId(repoId);
@@ -937,11 +931,11 @@ function handleRepoEvent(repoId, evt) {
     }
   }
 
-  // App output goes to the card console only; other messages to card + global log
+  // Service stdout/stderr goes to the card console only; manager/updater
+  // messages go to the global registry only (never to the card console).
   if (evt.type === 'app_output') {
     pushCardLog(repoId, evt.message, evt.is_error, evt.timestamp);
   } else if (evt.message) {
-    pushCardLog(repoId, evt.message, evt.type === 'error', evt.timestamp);
     appendGlobalLog('[' + repoId + '] ' + evt.message, evt.type, evt.timestamp);
   }
 }
@@ -1025,8 +1019,9 @@ function loadRepos() {
     });
 }
 
-// LOG SNAPSHOT: restores the retained backend log once per repo. Live
-// events arrive through the single global SSE connection below.
+// LOG SNAPSHOT: restores the retained app stdout/stderr once per repo
+// (the backend only keeps app_output for this endpoint). Live events
+// arrive through the single global SSE connection below.
 var logRestored = {};
 
 function safeId(id) {
@@ -1140,10 +1135,12 @@ function renderRepos() {
 	    html += '  <div class="repo-console" id="console-' + sid + '">';
 	    html += '    <div class="repo-console-header">';
 	    html += '      <span class="repo-console-label">Log del servicio</span>';
-	    html += '      <div class="repo-console-actions">';
-	    html += '        <button class="console-btn" onclick="clearCardConsole(\'' + escJs(repo.id) + '\')" title="Limpiar log (tambi\u00e9n en el backend)">' + ICONS.trash + '</button>';
-	    html += '        <button class="console-btn" onclick="toggleConsole(\'' + sid + '\')" title="Ocultar">\u2715</button>';
-	    html += '      </div>';
+    html += '      <div class="repo-console-actions">';
+    html += '        <button class="btn btn--ghost" onclick="clearCardConsole(\'' + escJs(repo.id) + '\')" title="Limpiar log del servicio">';
+    html += '          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 3h9M2 3l1 8h6l1-8M4 3V2a1 1 0 011-1h2a1 1 0 011 1v1"/><path d="M4.5 5v4M7.5 5v4"/></svg>';
+    html += '          Limpiar log';
+    html += '        </button>';
+    html += '      </div>';
 	    html += '    </div>';
 	    html += '    <div class="repo-console-output" id="console-output-' + sid + '"></div>';
 	    html += '  </div>';
@@ -1755,6 +1752,7 @@ function showToast(msg, type) {
 
 function clearLog() {
   globalLog.innerHTML = '<div class="log-line log-line--system">Registro limpiado. Esperando eventos...</div>';
+  fetch('/api/events/clear', { method: 'POST' }).catch(function(){});
 }
 
 // SELF-UPDATE

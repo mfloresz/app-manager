@@ -117,6 +117,44 @@ func (b *Broker) Snapshot(repoID string) []SSEEvent {
 	return out
 }
 
+// SnapshotAppOutput returns a copy of only the app_output events retained
+// for a repoID (the stdout/stderr of the running app). Manager/updater
+// log/error events are excluded: they belong to the global event registry,
+// not to the per-service console.
+func (b *Broker) SnapshotAppOutput(repoID string) []SSEEvent {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	out := make([]SSEEvent, 0)
+	for _, evt := range b.history[repoID] {
+		if evt.Type == EventAppOutput {
+			out = append(out, evt)
+		}
+	}
+	return out
+}
+
+// ClearManagerLogs discards the retained manager/updater log/error events
+// across every repo (the contents of the global event registry) while
+// preserving per-service app_output history used by the card consoles.
+func (b *Broker) ClearManagerLogs() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for id, h := range b.history {
+		kept := h[:0]
+		for _, evt := range h {
+			if evt.Type == EventAppOutput {
+				kept = append(kept, evt)
+			}
+		}
+		if len(kept) == 0 {
+			delete(b.history, id)
+		} else {
+			b.history[id] = kept
+		}
+	}
+}
+
 // Clear discards the log events retained for a repoID.
 func (b *Broker) Clear(repoID string) {
 	b.mu.Lock()

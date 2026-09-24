@@ -51,6 +51,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/repos/log/clear", h.handleRepoLogClear)
 	mux.HandleFunc("/api/events", h.handleSSE)
 	mux.HandleFunc("/api/events/global", h.handleGlobalSSE)
+	mux.HandleFunc("/api/events/clear", h.handleGlobalLogClear)
 	mux.HandleFunc("/api/platform", h.handlePlatform)
 	mux.HandleFunc("/api/self", h.handleSelfInfo)
 	mux.HandleFunc("/api/self/check", h.handleSelfCheck)
@@ -316,7 +317,9 @@ func (h *Handler) handleRepoStatuses(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(statuses)
 }
 
-// handleRepoLog returns the log events retained for a repo.
+// handleRepoLog returns the app stdout/stderr retained for a repo (the
+// per-service console). Manager/updater logs are excluded: they belong to
+// the global event registry, not to the service console.
 func (h *Handler) handleRepoLog(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -325,7 +328,7 @@ func (h *Handler) handleRepoLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(h.Broker.Snapshot(id))
+	json.NewEncoder(w).Encode(h.Broker.SnapshotAppOutput(id))
 }
 
 // handleRepoLogClear discards the log events retained for a repo.
@@ -350,6 +353,19 @@ func (h *Handler) handleRepoLogClear(w http.ResponseWriter, r *http.Request) {
 	h.Broker.Clear(input.ID)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Log limpiado"))
+}
+
+// handleGlobalLogClear discards the retained manager/updater logs backing
+// the global event registry (per-service app output is preserved).
+func (h *Handler) handleGlobalLogClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	h.Broker.ClearManagerLogs()
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Registro limpiado"))
 }
 
 // handleStopRepo stops a repo's app process.
