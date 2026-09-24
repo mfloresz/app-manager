@@ -1,9 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [v0.4.4]
 
 ### Fixes
 
+* Fixed service console mixing manager/updater messages with app output. `/api/repos/log` now returns only service stdout/stderr (`app_output`), manager messages go to the global registry only, and clearing the global registry persists via `POST /api/events/clear` while preserving per-service output.
 * Fixed process detection on Android/Termux always reporting `DETENIDO`. The PID record stored the `termux-chroot` wrapper path, but the recorded PID's `/proc/<pid>/exe` is `proot` (the wrapper script execs it), so the identity check could never match and every status poll deleted the PID file. The record now stores the real application binary and the Android identity check falls back to matching the wrapper's cmdline (which always embeds the launched command) once the start-time token rules out PID reuse.
 * Fixed stopping apps on Android/Termux leaving the real app orphaned. `Stop` only signaled the `termux-chroot`/`proot` wrapper while the app runs as its child, so the child survived holding its ports and the next start failed to bind. `Stop` (graceful and force paths) now also signals the wrapper's direct children discovered via `/proc`.
 
