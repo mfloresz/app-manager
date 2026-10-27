@@ -20,6 +20,7 @@ type Release struct {
 
 // Asset represents a release asset.
 type Asset struct {
+	ID          int64  `json:"id"`
 	Name        string `json:"name"`
 	DownloadURL string `json:"browser_download_url"`
 	ContentType string `json:"content_type"`
@@ -35,16 +36,22 @@ type Client struct {
 	HTTPClient *http.Client
 	// BaseURL is the API base. Empty means the real GitHub API.
 	BaseURL string
+	// Token is a GitHub personal access token (GITHUB_TOKEN) sent as a
+	// Bearer credential. Empty means anonymous access: public repos only
+	// and 60 requests/hour. The token is never persisted in repos.json.
+	Token string
 }
 
 // NewClient creates a new GitHub client. The API base defaults to the real
 // GitHub REST API and can be overridden with GITHUB_API_PREFIX (e.g. to point
 // the integration harness at a local mock); an empty/whitespace override
-// falls back to the default.
+// falls back to the default. A GITHUB_TOKEN personal access token enables
+// private repos and raises the rate limit to 5000 requests/hour.
 func NewClient() *Client {
 	return &Client{
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
 		BaseURL:    os.Getenv("GITHUB_API_PREFIX"),
+		Token:      strings.TrimSpace(os.Getenv("GITHUB_TOKEN")),
 	}
 }
 
@@ -56,6 +63,13 @@ func (c *Client) apiBase() string {
 		base = defaultAPIBase
 	}
 	return strings.TrimRight(base, "/")
+}
+
+// setAuth attaches the configured Bearer token when present.
+func (c *Client) setAuth(req *http.Request) {
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 }
 
 // downloadTimeout bounds the whole asset download (connection, redirects and
@@ -71,6 +85,7 @@ func (c *Client) LatestRelease(owner, name string) (*Release, error) {
 		return nil, fmt.Errorf("crear request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	c.setAuth(req)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -81,6 +96,12 @@ func (c *Client) LatestRelease(owner, name string) (*Release, error) {
 	if resp.StatusCode == 403 {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("rate-limit (HTTP 403): %s", string(body))
+	}
+	// GitHub answers 404 (not 401/403) for repos the caller cannot see, so
+	// an unauthenticated request to a private repo lands here.
+	if resp.StatusCode == http.StatusNotFound && c.Token == "" {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("HTTP 404: %s (si el repositorio es privado, configura GITHUB_TOKEN con un token de lectura)", string(body))
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -135,15 +156,29 @@ func (r *DownloadProgressReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// DownloadAsset downloads an asset to a local file with progress reporting.
-// The progressFn receives (bytesDownloaded, totalBytes). The download is
-// bounded by downloadTimeout; when the response announces a Content-Length,
-// the number of bytes written must match it exactly. Any failure removes the
+// DownloadAsset downloads a release asset to a local file with progress
+// reporting. It always goes through the API asset endpoint with
+// Accept: application/octet-stream instead of browser_download_url: that is
+// the only path that also serves private-repo assets. The progressFn
+// receives (bytesDownloaded, totalBytes). The download is bounded by
+// downloadTimeout; when the response announces a Content-Length, the number
+// of bytes written must match it exactly. Any failure removes the
 // destination file.
-func DownloadAsset(url, destPath string, progressFn func(downloaded, total int64)) error {
-	client := &http.Client{Timeout: downloadTimeout}
+func (c *Client) DownloadAsset(owner, name string, asset Asset, destPath string, progressFn func(downloaded, total int64)) error {
+	apiURL := fmt.Sprintf("%s/repos/%s/%s/releases/assets/%d", c.apiBase(), owner, name, asset.ID)
 
-	resp, err := client.Get(url)
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return fmt.Errorf("crear request: %w", err)
+	}
+	// The API replies with a redirect to a signed CDN URL; Go strips the
+	// Authorization header when a redirect crosses hosts, so the token never
+	// leaves the API domain.
+	req.Header.Set("Accept", "application/octet-stream")
+	c.setAuth(req)
+
+	client := &http.Client{Timeout: downloadTimeout}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("conexión: %w", err)
 	}

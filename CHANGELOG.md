@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.5.0]
+
+### What's new
+
+* Added support for private GitHub repositories. Set the `GITHUB_TOKEN` environment variable (a fine-grained token with `Contents: read`, or a classic token with `repo` scope) and release lookups and asset downloads are authenticated against the GitHub API. Asset downloads now always go through the API asset endpoint (with `Accept: application/octet-stream`), which is the only path that serves private-repo assets; public repos behave as before. The token is read from the environment only — it is never written to `repos.json` — and also raises the API rate limit from 60 to 5000 requests/hour.
+* Updates now preserve the running state of the app. An app that is not currently managed by AP Manager (stopped, or started outside the dashboard) can finally be updated: the binary is replaced in place without starting anything, and managed apps keep the previous stop → replace → restart flow unchanged. Stopping an app that was never started now responds cleanly instead of returning an error.
+
+### Fixes
+
+* Version checks against private repositories no longer fail with a misleading `HTTP 404`. GitHub answers 404 (not 401) for repos the caller cannot see; without a token the error now explicitly hints at configuring `GITHUB_TOKEN`.
+
 ## [v0.4.4]
 
 ### Fixes

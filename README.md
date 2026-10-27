@@ -172,6 +172,7 @@ The script automatically:
 | `REPOS_FILE` | `repos.json` | Path to the repository configuration file |
 | `PORT` | `:8080` | HTTP server port |
 | `GITHUB_API_PREFIX` | *(none)* | Override for GitHub API endpoint (useful for proxies or testing) |
+| `GITHUB_TOKEN` | *(none)* | GitHub personal access token (fine-grained with `Contents: read`, or classic with `repo` scope). Enables private repositories and raises the API rate limit from 60 to 5000 requests/hour |
 
 ### Development Mode
 

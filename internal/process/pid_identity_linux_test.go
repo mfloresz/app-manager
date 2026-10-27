@@ -59,6 +59,11 @@ func TestPIDIdentityMismatchNoSignal(t *testing.T) {
 	if pm.IsRunning("a/yara") {
 		t.Error("mismatched identity must not be considered running")
 	}
+	// IsRunning removed the stale record; re-create it so Stop itself must
+	// refuse to signal an identity-mismatched PID.
+	if err := pm.WritePid("a/yara", rec); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pm.Stop("a/yara"); err == nil {
 		t.Error("Stop must refuse to signal a mismatched identity")
 	}
@@ -81,6 +86,11 @@ func TestPIDIdentityMismatchNoSignal(t *testing.T) {
 	}
 	if pm.IsRunning("a/yara") {
 		t.Error("path-only PID record must not be considered running on Linux")
+	}
+	// IsRunning removed the stale record; re-create it so Stop itself must
+	// refuse to signal a record without a start-time token.
+	if err := pm.WritePid("a/yara", pidRecord{PID: os.Getpid(), ExecPath: canonical}); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := pm.Stop("a/yara"); err == nil {
 		t.Error("Stop must reject a path-only PID record on Linux")

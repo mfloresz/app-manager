@@ -126,6 +126,11 @@ func TestPIDRecordLegacyRejected(t *testing.T) {
 	if pm.IsRunning("a/yara") {
 		t.Error("legacy PID record must not be considered running")
 	}
+	// IsRunning removed the unusable file as garbage; re-create it so Stop
+	// itself sees the legacy record and must still refuse to act on it.
+	if err := os.WriteFile(pm.PidFile("a/yara"), []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pm.Stop("a/yara"); err == nil {
 		t.Error("Stop must fail closed on a legacy PID record")
 	}
@@ -149,11 +154,31 @@ func TestPIDRecordRejectsPIDOnlyJSON(t *testing.T) {
 	if pm.IsRunning("a/yara") {
 		t.Error("PID-only JSON must not be considered running")
 	}
+	// IsRunning removed the unusable file as garbage; re-create it so Stop
+	// itself sees the PID-only record and must still refuse to act on it.
+	if err := os.WriteFile(pm.PidFile("a/yara"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pm.Stop("a/yara"); err == nil {
 		t.Error("Stop must fail closed on PID-only JSON")
 	}
 	if !ProcessExists(os.Getpid()) {
 		t.Fatal("test process was signaled — PID-only JSON must never be used to signal")
+	}
+}
+
+// TestStopWithoutPidFileIsANoop verifies Stop on a repo with no PID file
+// reports "nothing stopped" without an error: an app that was never started
+// under management must not fail a stop request or an update.
+func TestStopWithoutPidFileIsANoop(t *testing.T) {
+	dir := t.TempDir()
+	pm := NewManager(dir)
+	stopped, err := pm.Stop("never/started")
+	if err != nil {
+		t.Fatalf("Stop without PID file returned an error: %v", err)
+	}
+	if stopped {
+		t.Error("Stop without PID file must report stopped == false")
 	}
 }
 

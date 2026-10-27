@@ -192,14 +192,16 @@ func (pm *Manager) IsRunning(repoID string) bool {
 }
 
 // Stop gracefully stops an app by PID, with force kill fallback.
-// Returns true if the process was actually stopped. Before signaling, the
-// stored record must still match the live process; a stale, legacy or
-// mismatched record is never used to send a signal.
+// Returns true if the process was actually stopped, and (false, nil) when
+// there is nothing under management to stop (no PID file or the recorded
+// process is already dead). Before signaling, the stored record must still
+// match the live process; a stale, legacy or mismatched record is never used
+// to send a signal.
 func (pm *Manager) Stop(repoID string) (bool, error) {
 	rec, err := pm.ReadPid(repoID)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return false, fmt.Errorf("no PID file para %s: %w", repoID, err)
+			return false, nil // nothing under management to stop
 		}
 		// Legacy/corrupt record: fail closed, never signal based on it.
 		pm.RemovePid(repoID)

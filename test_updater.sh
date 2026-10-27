@@ -133,8 +133,8 @@ import (
 )
 
 type Asset struct {
-	Name        string `json:"name"`
-	DownloadURL string `json:"browser_download_url"`
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
 }
 
 type Release struct {
@@ -156,6 +156,24 @@ func main() {
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// /repos/{owner}/{name}/releases/assets/{id} -> serve the binary
+		if strings.Contains(r.URL.Path, "/releases/assets/") {
+			parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+			// parts: repos, {owner}, {name}, releases, assets, {id}
+			if len(parts) != 6 {
+				http.Error(w, "bad asset path", 400)
+				return
+			}
+			app, ok := apps[parts[1]+"/"+parts[2]]
+			if !ok {
+				http.Error(w, "not found", 404)
+				return
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			http.ServeFile(w, r, app.binary)
+			return
+		}
+
 		// Parse: /repos/{owner}/{name}/releases/latest
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/repos/"), "/")
 		if len(parts) < 2 {
@@ -173,25 +191,11 @@ func main() {
 		rel := Release{
 			TagName: app.tag,
 			Assets: []Asset{
-				{
-					Name:        app.asset,
-					DownloadURL: fmt.Sprintf("http://localhost:%s/download/%s", port, key),
-				},
+				{ID: 1, Name: app.asset},
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rel)
-	})
-
-	http.HandleFunc("/download/", func(w http.ResponseWriter, r *http.Request) {
-		key := strings.TrimPrefix(r.URL.Path, "/download/")
-		app, ok := apps[key]
-		if !ok {
-			http.Error(w, "not found", 404)
-			return
-		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		http.ServeFile(w, r, app.binary)
 	})
 
 	fmt.Printf("Mock GitHub API en puerto %s\n", port)

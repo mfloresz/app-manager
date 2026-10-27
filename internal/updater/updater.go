@@ -180,7 +180,7 @@ func (p *Pipeline) RunUpdate(repoID string) {
 
 	p.Broker.EmitLog(repoID, "⬇ Descargando "+targetAsset.Name+" ...")
 
-	err = github.DownloadAsset(targetAsset.DownloadURL, tmpPath, func(downloaded, total int64) {
+	err = p.GitHub.DownloadAsset(repo.Owner, repo.Name, *targetAsset, tmpPath, func(downloaded, total int64) {
 		percent := 0
 		if total > 0 {
 			percent = int(downloaded * 100 / total)
@@ -269,6 +269,18 @@ func (p *Pipeline) RunUpdate(repoID string) {
 	}
 	p.Broker.EmitLog(repoID, "✅ Binario reemplazado")
 
+	// The app was not running under management: replace only and keep it
+	// stopped. Restarting here would surprise the user (or duplicate an
+	// instance started outside the manager).
+	if !stopped {
+		p.Broker.EmitLog(repoID, "ℹ️ La app no estaba en ejecución; binario actualizado sin rearrancar")
+		p.Store.Update(repoID, func(r *storage.Repository) {
+			r.PID = 0
+		})
+		p.finishUpdate(repoID, currentVer, newVersion, backupPath)
+		return
+	}
+
 	// 11. Start new version with custom args
 	p.Store.Update(repoID, func(r *storage.Repository) {
 		r.Status = storage.StatusStarting
@@ -313,20 +325,7 @@ func (p *Pipeline) RunUpdate(repoID string) {
 
 	if healthy {
 		p.Broker.EmitLog(repoID, "✅ Nueva versión verificada y funcionando")
-
-		p.Store.Update(repoID, func(r *storage.Repository) {
-			r.CurrentVersion = newVersion
-			r.Status = storage.StatusIdle
-			r.LastUpdate = storage.Now()
-			r.Progress = 100
-			r.Error = ""
-		})
-		p.Broker.Emit(events.NewUpdateComplete(repoID, newVersion))
-		p.Broker.Emit(events.NewVersion(repoID, newVersion, newVersion))
-
-		os.Remove(backupPath)
-		p.Broker.EmitLog(repoID, "🗑️  Backup eliminado")
-		p.persistState(repoID)
+		p.finishUpdate(repoID, currentVer, newVersion, backupPath)
 	} else {
 		restoreErr := p.restoreFromBackup(repoID, appPath, backupPath, repo.AppName)
 		msg := "La nueva versión no pasó la verificación de salud"
@@ -338,6 +337,26 @@ func (p *Pipeline) RunUpdate(repoID string) {
 		p.failUpdate(repoID, msg)
 		return
 	}
+}
+
+// finishUpdate records a successfully replaced binary: refreshes the repo
+// state, removes the backup and emits the completion banner. Shared by the
+// restart-verified path and the keep-it-stopped path.
+func (p *Pipeline) finishUpdate(repoID, currentVer, newVersion, backupPath string) {
+	const sep = "══════════════════════════════════════"
+	p.Store.Update(repoID, func(r *storage.Repository) {
+		r.CurrentVersion = newVersion
+		r.Status = storage.StatusIdle
+		r.LastUpdate = storage.Now()
+		r.Progress = 100
+		r.Error = ""
+	})
+	p.Broker.Emit(events.NewUpdateComplete(repoID, newVersion))
+	p.Broker.Emit(events.NewVersion(repoID, newVersion, newVersion))
+
+	os.Remove(backupPath)
+	p.Broker.EmitLog(repoID, "🗑️  Backup eliminado")
+	p.persistState(repoID)
 
 	p.Broker.EmitLog(repoID, sep)
 	p.Broker.EmitLog(repoID, ">>> ACTUALIZACIÓN COMPLETADA <<<")
@@ -1179,7 +1198,7 @@ func (p *Pipeline) InstallApp(repoID string) {
 	p.Broker.Emit(events.NewProgress(repoID, "download", 0))
 	p.Broker.EmitLog(repoID, "⬇ Descargando "+targetAsset.Name+" ...")
 
-	err = github.DownloadAsset(targetAsset.DownloadURL, tmpPath, func(downloaded, total int64) {
+	err = p.GitHub.DownloadAsset(repo.Owner, repo.Name, *targetAsset, tmpPath, func(downloaded, total int64) {
 		percent := 0
 		if total > 0 {
 			percent = int(downloaded * 100 / total)

@@ -6,21 +6,28 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
-// TestDownloadAssetSuccess verifies a well-formed download writes the
-// destination file with the exact advertised bytes.
+// TestDownloadAssetSuccess verifies a well-formed download hits the API asset
+// endpoint with Accept: application/octet-stream and the Bearer token, and
+// writes the destination file with the exact advertised bytes.
 func TestDownloadAssetSuccess(t *testing.T) {
 	body := []byte("hello asset")
+	var gotPath, gotAccept, gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAccept = r.Header.Get("Accept")
+		gotAuth = r.Header.Get("Authorization")
 		w.Write(body)
 	}))
 	defer srv.Close()
 
 	dest := filepath.Join(t.TempDir(), "out.tmp")
-	if err := DownloadAsset(srv.URL, dest, nil); err != nil {
+	c := &Client{BaseURL: srv.URL, Token: "tok-123"}
+	if err := c.DownloadAsset("owner", "name", Asset{ID: 42}, dest, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(dest)
@@ -29,6 +36,15 @@ func TestDownloadAssetSuccess(t *testing.T) {
 	}
 	if string(data) != string(body) {
 		t.Errorf("downloaded %q, want %q", data, body)
+	}
+	if want := "/repos/owner/name/releases/assets/42"; gotPath != want {
+		t.Errorf("request path = %q, want %q", gotPath, want)
+	}
+	if want := "application/octet-stream"; gotAccept != want {
+		t.Errorf("Accept header = %q, want %q", gotAccept, want)
+	}
+	if want := "Bearer tok-123"; gotAuth != want {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, want)
 	}
 }
 
@@ -42,7 +58,8 @@ func TestDownloadAssetLengthMismatch(t *testing.T) {
 	defer srv.Close()
 
 	dest := filepath.Join(t.TempDir(), "out.tmp")
-	err := DownloadAsset(srv.URL, dest, nil)
+	c := &Client{BaseURL: srv.URL}
+	err := c.DownloadAsset("owner", "name", Asset{ID: 42}, dest, nil)
 	if err == nil {
 		t.Fatal("expected an error for a truncated body")
 	}
@@ -67,7 +84,8 @@ func TestDownloadAssetTimeout(t *testing.T) {
 	t.Cleanup(func() { downloadTimeout = old })
 
 	dest := filepath.Join(t.TempDir(), "out.tmp")
-	err := DownloadAsset(srv.URL, dest, nil)
+	c := &Client{BaseURL: srv.URL}
+	err := c.DownloadAsset("owner", "name", Asset{ID: 42}, dest, nil)
 	if err == nil {
 		t.Fatal("expected a timeout error")
 	}
@@ -139,5 +157,73 @@ func TestLatestReleaseAgainstMock(t *testing.T) {
 	// an absolute URL; production GitHub assets must keep working).
 	if rel.Assets[0].DownloadURL != "http://localhost:9999/dl/a" {
 		t.Errorf("DownloadURL = %q, want the absolute mock URL", rel.Assets[0].DownloadURL)
+	}
+}
+
+// TestNewClientToken covers the GITHUB_TOKEN env var: its value is trimmed
+// into Client.Token.
+func TestNewClientToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "  ghp_abc  ")
+	if got := NewClient().Token; got != "ghp_abc" {
+		t.Errorf("Token = %q, want %q", got, "ghp_abc")
+	}
+	t.Setenv("GITHUB_TOKEN", "   ")
+	if got := NewClient().Token; got != "" {
+		t.Errorf("Token = %q, want empty for whitespace-only env", got)
+	}
+}
+
+// TestLatestReleaseAuth verifies the Bearer token is sent when configured and
+// absent on anonymous requests.
+func TestLatestReleaseAuth(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		fmt.Fprint(w, `{"tag_name":"v1"}`)
+	}))
+	defer srv.Close()
+
+	c := &Client{HTTPClient: srv.Client(), BaseURL: srv.URL, Token: "tok-123"}
+	if _, err := c.LatestRelease("o", "n"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Bearer tok-123"; gotAuth != want {
+		t.Errorf("Authorization = %q, want %q", gotAuth, want)
+	}
+
+	c.Token = ""
+	if _, err := c.LatestRelease("o", "n"); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "" {
+		t.Errorf("anonymous request sent Authorization %q", gotAuth)
+	}
+}
+
+// TestLatestReleasePrivateHint verifies a 404 without a token hints at
+// GITHUB_TOKEN (GitHub hides private repos behind 404), and that the hint is
+// absent once a token is configured.
+func TestLatestReleasePrivateHint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c := &Client{HTTPClient: srv.Client(), BaseURL: srv.URL}
+	_, err := c.LatestRelease("o", "private")
+	if err == nil {
+		t.Fatal("expected an error for a 404 response")
+	}
+	if !strings.Contains(err.Error(), "GITHUB_TOKEN") {
+		t.Errorf("anonymous 404 error lacks the GITHUB_TOKEN hint: %v", err)
+	}
+
+	c.Token = "tok-123"
+	_, err = c.LatestRelease("o", "private")
+	if err == nil {
+		t.Fatal("expected an error for a 404 response")
+	}
+	if strings.Contains(err.Error(), "GITHUB_TOKEN") {
+		t.Errorf("authenticated 404 error should not suggest GITHUB_TOKEN: %v", err)
 	}
 }

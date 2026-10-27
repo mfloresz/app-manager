@@ -2,6 +2,9 @@ package updater
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,6 +13,7 @@ import (
 	"time"
 
 	"ap-manager/internal/events"
+	"ap-manager/internal/github"
 	"ap-manager/internal/process"
 	"ap-manager/internal/storage"
 )
@@ -467,6 +471,74 @@ func containsString(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// TestRunUpdateKeepsStoppedAppStopped runs the full update pipeline against a
+// mock GitHub API for an app that is not running under management: the binary
+// must be replaced, no process started (no PID file), and the update must
+// complete instead of failing on the missing PID record.
+func TestRunUpdateKeepsStoppedAppStopped(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell for the mock binary")
+	}
+	dir := t.TempDir()
+
+	newBin := "#!/bin/sh\necho testapp 2.0.0\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/releases/latest") {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"tag_name":"v2.0.0","assets":[{"id":1,"name":"testapp-linux-amd64"}]}`)
+			return
+		}
+		// /repos/{owner}/{name}/releases/assets/{id}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		fmt.Fprint(w, newBin)
+	}))
+	defer srv.Close()
+
+	appPath := filepath.Join(dir, "testapp")
+	if err := os.WriteFile(appPath, []byte("#!/bin/sh\necho testapp 1.0.0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newTestPipeline(t, dir)
+	p.GitHub = &github.Client{HTTPClient: srv.Client(), BaseURL: srv.URL}
+	p.Store.Update("test/app", func(r *storage.Repository) {
+		r.InstallPath = dir
+	})
+
+	p.RunUpdate("test/app")
+
+	// The binary was replaced with the downloaded one.
+	data, err := os.ReadFile(appPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != newBin {
+		t.Errorf("binary content = %q, want %q", data, newBin)
+	}
+	// No backup artifact left behind.
+	backupPath := filepath.Join(dir, updateArtifactName("testapp", "test/app", ".bak"))
+	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+		t.Errorf("backup still exists after update: %v", err)
+	}
+	// No process was started: no PID file, no recorded PID, idle status.
+	if _, err := os.Stat(p.ProcMan.PidFile("test/app")); !os.IsNotExist(err) {
+		t.Errorf("a PID file exists after updating a stopped app: %v", err)
+	}
+	repo := p.Store.Find("test/app")
+	if repo == nil {
+		t.Fatal("repo not found in store")
+	}
+	if repo.Status != storage.StatusIdle {
+		t.Errorf("Status = %q, want %q", repo.Status, storage.StatusIdle)
+	}
+	if repo.PID != 0 {
+		t.Errorf("PID = %d, want 0", repo.PID)
+	}
+	if repo.CurrentVersion != "v2.0.0" {
+		t.Errorf("CurrentVersion = %q, want v2.0.0", repo.CurrentVersion)
+	}
 }
 
 // TestDetectCurrentVersionProbeOrderAndFallback verifies the probe order:
